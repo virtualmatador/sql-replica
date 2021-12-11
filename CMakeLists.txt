@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.18)
+project("sql-replica" VERSION 1.0.0)
+enable_testing()
+add_subdirectory("extern/jsonio")
+add_subdirectory("extern/cli")
+add_subdirectory("extern/sqlr")
+add_executable("${CMAKE_PROJECT_NAME}" "main.cpp")
+target_link_libraries("${CMAKE_PROJECT_NAME}" "jsonio" "cli" "sqlr")
