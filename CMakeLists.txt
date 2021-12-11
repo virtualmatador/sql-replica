@@ -6,3 +6,5 @@ add_subdirectory("extern/cli")
 add_subdirectory("extern/sqlr")
 add_executable("${CMAKE_PROJECT_NAME}" "main.cpp")
 target_link_libraries("${CMAKE_PROJECT_NAME}" "jsonio" "cli" "sqlr")
+target_compile_definitions("${CMAKE_PROJECT_NAME}" PRIVATE
+    VERSION="${CMAKE_PROJECT_VERSION}")
