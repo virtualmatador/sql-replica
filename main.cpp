@@ -9,7 +9,7 @@
 int main(int argc, const char* argv[])
 {
     std::string name;
-    jsonio::json db, clients = jsonio::json_array<jsonio::json>();
+    jsonio::json_arr db, clients;
     jsonio::json report = false;
     bool convert = false;
     try
@@ -41,12 +41,17 @@ int main(int argc, const char* argv[])
                 }, 1, 1})
             },
             {
-                { "--clients", "-c" },
+                { "--client", "-c" },
                 Cli::Handler({ [&](const std::vector<std::string>& args)
                 {
-                    std::ifstream(args[0]) >> clients;
+                    jsonio::json_obj client;
+                    client.insert({ "user", args[0] });
+                    jsonio::json_arr permissions;
+                    std::ifstream(args[1]) >> permissions;
+                    client.insert({ "permissions", std::move(permissions) });
+                    clients.emplace_back(std::move(client));
                     convert = true;
-                }, 1, 1})
+                }, 2, 2})
             },
             {
                 { "" },
