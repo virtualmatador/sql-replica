@@ -12,6 +12,7 @@ int main(int argc, const char* argv[])
     jsonio::json_arr db, clients;
     jsonio::json report = false;
     bool convert = false;
+    std::vector<std::string> errors;
     try
     {
         Cli::parse(argc, argv,
@@ -29,6 +30,11 @@ int main(int argc, const char* argv[])
                 Cli::Handler({ [&](const std::vector<std::string>& args)
                 {
                     std::istringstream(args[0]) >> report;
+                    if (report.type() != jsonio::JsonType::J_BOOL)
+                    {
+                        errors.emplace_back(
+                            "Report flag is not valid: " + args[0]);
+                    }
                     convert = true;
                 }, 1, 1})
             },
@@ -48,6 +54,11 @@ int main(int argc, const char* argv[])
                     client.insert({ "user", args[0] });
                     jsonio::json_arr permissions;
                     std::ifstream(args[1]) >> permissions;
+                    if (!permissions.completed())
+                    {
+                        errors.emplace_back(
+                            "Permissions file is not valid: " + args[1]);
+                    }
                     client.insert({ "permissions", std::move(permissions) });
                     clients.emplace_back(std::move(client));
                     convert = true;
@@ -58,14 +69,29 @@ int main(int argc, const char* argv[])
                 Cli::Handler({ [&](const std::vector<std::string>& args)
                 {
                     std::ifstream(args[0]) >> db;
+                    if (!db.completed())
+                    {
+                        errors.emplace_back(
+                            "Database file is not valid: " + args[0]);
+                    }
                     convert = true;
                 }, 1, 1})
             }
         });
-        if (convert)
+        if (errors.empty())
         {
-            std::cout << replicate_sql(
-                report.get_bool(), name, db, clients) << std::endl;
+            if (convert)
+            {
+                std::cout << replicate_sql(
+                    report.get_bool(), name, db, clients) << std::endl;
+            }
+        }
+        else
+        {
+            for (const auto& error : errors)
+            {
+                std::cerr << error << std::endl;
+            }
         }
     }
     catch(const std::exception& e)
