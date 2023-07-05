@@ -3,7 +3,7 @@
 	url = ../sqlr
 [submodule "extern/jsonio"]
 	path = extern/jsonio
-	url = ssh://github/virtualmatador/jsonio
+	url = https://github.com/virtualmatador/jsonio
 [submodule "extern/cli"]
 	path = extern/cli
-	url = ssh://github/virtualmatador/cli
+	url = https://github.com/virtualmatador/cli

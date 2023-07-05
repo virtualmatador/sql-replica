@@ -51,7 +51,7 @@ int main(int argc, const char* argv[])
                 Cli::Handler({ [&](const std::vector<std::string>& args)
                 {
                     jsonio::json_obj client;
-                    client.insert({ "user", args[0] });
+                    client["user"] = args[0];
                     jsonio::json_arr permissions;
                     std::ifstream(args[1]) >> permissions;
                     if (!permissions.completed())
@@ -59,7 +59,7 @@ int main(int argc, const char* argv[])
                         errors.emplace_back(
                             "Permissions file is not valid: " + args[1]);
                     }
-                    client.insert({ "permissions", std::move(permissions) });
+                    client["permissions"] = std::move(permissions);
                     clients.emplace_back(std::move(client));
                     convert = true;
                 }, 2, 2})
