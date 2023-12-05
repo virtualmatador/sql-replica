@@ -11,6 +11,7 @@ int main(int argc, const char* argv[])
     std::string name;
     jsonio::json_arr db, clients;
     jsonio::json report = false;
+    std::string output_file;
     bool convert = false;
     std::vector<std::string> errors;
     try
@@ -65,6 +66,14 @@ int main(int argc, const char* argv[])
                 }, 2, 2})
             },
             {
+                { "--out", "-o" },
+                Cli::Handler({ [&](const std::vector<std::string>& args)
+                {
+                    output_file = args[0];
+                    convert = true;
+                }, 1, 1})
+            },
+            {
                 { "" },
                 Cli::Handler({ [&](const std::vector<std::string>& args)
                 {
@@ -82,8 +91,19 @@ int main(int argc, const char* argv[])
         {
             if (convert)
             {
-                std::cout << replicate_sql(
-                    report.get_bool(), name, db, clients) << std::endl;
+                std::ostream* os;
+                std::ofstream ofs;
+                if (output_file.empty())
+                {
+                    os = &std::cout;
+                }
+                else
+                {
+                    ofs.open(output_file);
+                    os = &ofs;
+                }
+                (*os) << replicate_sql(report.get_bool(), name, db, clients) <<
+                    std::endl;
             }
         }
         else
