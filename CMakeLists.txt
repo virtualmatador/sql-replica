@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project("sql-replica" VERSION 1.1.0)
+project("sql-replica" VERSION 1.2.0)
 enable_testing()
 
 set(CMAKE_PROJECT_DESCRIPTION "Generate SQL from Database definition")
