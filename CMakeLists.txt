@@ -13,8 +13,16 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS "")
 include(CPack)
 
 add_custom_target("version" ALL
-    COMMAND "${CMAKE_COMMAND}" -E echo ${CMAKE_PROJECT_VERSION} >
-        "${CMAKE_CURRENT_BINARY_DIR}/version.txt"
+    COMMAND "${CMAKE_COMMAND}" -E echo ${CMAKE_PROJECT_VERSION} > version.txt
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+)
+
+add_custom_target("readme" ALL VERBATIM
+    COMMAND csplit -z ${CMAKE_CURRENT_SOURCE_DIR}/extern/sqlr/README.md
+        -f table "%^### Table$%" "/^#{1,3} .*$/"
+    COMMAND csplit -z ${CMAKE_CURRENT_SOURCE_DIR}/extern/sqlr/README.md
+        -f permission "%^#### Permission$%" "/^#{1,4} .*$/"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
 add_subdirectory("extern/jsonio")

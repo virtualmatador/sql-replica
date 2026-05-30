@@ -41,20 +41,20 @@ int main(int argc, const char *argv[]) {
                         convert = true;
                       },
                       1, 1})},
-       {{"--client", "-c"},
+       {{"--user", "-u"},
         Cli::Handler({[&](auto &&args) {
-                        jsonio::json_obj client;
-                        if (args.size() == 1 || args[0].empty()) {
-                          client["user"] =
-                              std::filesystem::path{args.back()}.stem();
+                        jsonio::json_obj user;
+                        if (args.size() == 2 && !args[0].empty()) {
+                          user["name"] = args[0];
                         } else {
-                          client["user"] = args[0];
+                          user["name"] =
+                              std::filesystem::path{args.back()}.stem();
                         }
-                        std::ifstream(args.back()) >> client["permissions"];
-                        if (client["permissions"].completed() &&
-                            client["permissions"].type() ==
+                        std::ifstream(args.back()) >> user["permissions"];
+                        if (user["permissions"].completed() &&
+                            user["permissions"].type() ==
                                 jsonio::JsonType::J_ARRAY) {
-                          clients.get_array().emplace_back(std::move(client));
+                          clients.get_array().emplace_back(std::move(user));
                           convert = true;
                         } else {
                           errors.emplace_back(
