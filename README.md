@@ -15,9 +15,11 @@ How the magic happens:
 The following items are needed:
 - database name
 - tables definition json array file
-- users definition json array file
-- report flag to add informative logs to SQL output
-- dry-run flag to list required changes without applying them
+- functions definition json array file, optional
+- procedures definition json array file, optional
+- users definition json array file, optional
+- report flag to add informative logs to SQL output, optional
+- dry-run flag to list required changes without applying them, optional
 
 ## Tables
 
@@ -223,6 +225,106 @@ Example:
 }
 ```
 
+
+## Functions (optional)
+
+Functions are defined by a json array file.
+
+Example:
+```
+[
+]
+```
+
+### Function
+
+A function is an object that has the following fields:
+
+| Field Name | Required | Type | Description |
+| --- | --- | --- | --- |
+| name | Yes | string | The name of the function |
+| returns | Yes | string | The function return type |
+| characteristics | Yes | array | The array of function characteristics, such as `DETERMINISTIC` or `READS SQL DATA` |
+| params | Yes | array | The array of the function parameter objects |
+| body | Yes | string | The function body, without the top `BEGIN` and bottom `END` |
+
+Example:
+```
+{
+    "name": "double_value",
+    "returns": "int",
+    "characteristics": ["DETERMINISTIC", "READS SQL DATA"],
+    "params": [
+        {
+            "name": "input_value",
+            "type": "int"
+        }
+    ],
+    "body": "RETURN input_value * 2;"
+}
+```
+
+#### Function Parameter
+
+A function parameter is an object that has the following fields:
+
+| Field Name | Required | Type | Description |
+| --- | --- | --- | --- |
+| name | Yes | string | The name of the parameter |
+| type | Yes | string | The type of the parameter |
+
+## Procedures (optional)
+
+Procedures are defined by a json array file.
+
+Example:
+```
+[
+]
+```
+
+### Procedure
+
+A procedure is an object that has the following fields:
+
+| Field Name | Required | Type | Description |
+| --- | --- | --- | --- |
+| name | Yes | string | The name of the procedure |
+| characteristics | Yes | array | The array of procedure characteristics, such as `MODIFIES SQL DATA` or `SQL SECURITY INVOKER` |
+| params | Yes | array | The array of the procedure parameter objects |
+| body | Yes | string | The procedure body, without the top `BEGIN` and bottom `END` |
+
+Example:
+```
+{
+    "name": "set_value",
+    "characteristics": ["MODIFIES SQL DATA", "SQL SECURITY INVOKER"],
+    "params": [
+        {
+            "mode": "IN",
+            "name": "input_value",
+            "type": "int"
+        },
+        {
+            "mode": "OUT",
+            "name": "output_value",
+            "type": "int"
+        }
+    ],
+    "body": "SET output_value = input_value;"
+}
+```
+
+#### Procedure Parameter
+
+A procedure parameter is an object that has the following fields:
+
+| Field Name | Required | Type | Description |
+| --- | --- | --- | --- |
+| mode | Yes | string | The parameter mode, `IN`, `OUT`, or `INOUT` |
+| name | Yes | string | The name of the parameter |
+| type | Yes | string | The type of the parameter |
+
 ## Users (optional)
 
 The users are defined by an array of the user objects.
@@ -257,18 +359,31 @@ A permission is an object that has the following fields:
 
 | Field Name | Required | Type | Description |
 | --- | --- | --- | --- |
-| subject | Yes | string | The name of the table |
-| operations | Yes | array | The array of the operations that user is allowed to do on the table |
+| type | Yes | string | The type of subject: `table`, `function`, or `procedure` |
+| subject | Yes | string | The name of the table, function, or procedure |
+| operations | Yes | array | The array of the operations that user is allowed to do on the subject |
 
-Example:
+Example permission for table:
 ```
 {
+  "type": "table",
   "subject": "user",
   "operations": [
     "SELECT",
     "INSERT",
     "UPDATE",
     "DELETE"
+  ]
+}
+```
+
+Example permission for function:
+```
+{
+  "type": "function",
+  "subject": "active_user_count",
+  "operations": [
+    "EXECUTE"
   ]
 }
 ```

@@ -1,5 +1,8 @@
+#include <algorithm>
+#include <cctype>
 #include <map>
 #include <sstream>
+#include <vector>
 
 #include <string.h>
 
@@ -13,34 +16,222 @@ void sanitize(const std::string &input, const char *bad_chars) {
   }
 }
 
-std::string replicate_sql(const std::string &db_name,
-                          const jsonio::json &tables, const jsonio::json &users,
-                          bool report, bool dry_run) {
+namespace {
+
+bool equals_ignore_case(const std::string &lhs, const char *rhs) {
+  return strcasecmp(lhs.c_str(), rhs) == 0;
+}
+
+void validate_engine(const std::string &engine) {
+  if (engine.empty() ||
+      std::any_of(engine.begin(), engine.end(), [](unsigned char c) {
+        return !std::isalnum(c) && c != '_';
+      })) {
+    throw std::runtime_error("Publish MySQL: Bad Engine");
+  }
+}
+
+void validate_key_type(const std::string &type) {
+  for (const auto *allowed :
+       {"primary key", "unique", "unique key", "unique index", "index", "key",
+        "fulltext", "fulltext key", "fulltext index", "spatial",
+        "spatial key", "spatial index"}) {
+    if (equals_ignore_case(type, allowed)) {
+      return;
+    }
+  }
+  throw std::runtime_error("Publish MySQL: Bad Key Type");
+}
+
+void validate_foreign_key_action(const std::string &action) {
+  for (const auto *allowed :
+       {"RESTRICT", "CASCADE", "SET NULL", "NO ACTION", "SET DEFAULT"}) {
+    if (equals_ignore_case(action, allowed)) {
+      return;
+    }
+  }
+  throw std::runtime_error("Publish MySQL: Bad ForeignKey Action");
+}
+
+std::string escape_sql_string(const std::string &input) {
+  std::string output;
+  for (const auto c : input) {
+    if (c == '\\' || c == '\'') {
+      output += '\\';
+    }
+    output += c;
+  }
+  return output;
+}
+
+std::string function_params(const jsonio::json &function) {
+  std::string params;
+  for (const auto &param : function["params"].get_array()) {
+    if (!params.empty()) {
+      params += ", ";
+    }
+    params +=
+        "`" + param["name"].get_string() + "` " + param["type"].get_string();
+  }
+  return params;
+}
+
+std::string procedure_params(const jsonio::json &procedure) {
+  std::string params;
+  for (const auto &param : procedure["params"].get_array()) {
+    if (!params.empty()) {
+      params += ", ";
+    }
+    params += param["mode"].get_string() + " `" + param["name"].get_string() +
+              "` " + param["type"].get_string();
+  }
+  return params;
+}
+
+const jsonio::json_arr &routine_characteristic_values(
+    const jsonio::json &routine) {
+  return routine["characteristics"].get_array();
+}
+
+std::string routine_characteristics(const jsonio::json &routine) {
+  std::string result;
+  for (const auto &value : routine_characteristic_values(routine)) {
+    if (!result.empty()) {
+      result += " ";
+    }
+    result += value.get_string();
+  }
+  return result;
+}
+
+std::string routine_data_access(const jsonio::json &routine) {
+  for (const auto &value : routine_characteristic_values(routine)) {
+    const auto &text = value.get_string();
+    if (strcasecmp(text.c_str(), "CONTAINS SQL") == 0 ||
+        strcasecmp(text.c_str(), "NO SQL") == 0 ||
+        strcasecmp(text.c_str(), "READS SQL DATA") == 0 ||
+        strcasecmp(text.c_str(), "MODIFIES SQL DATA") == 0) {
+      return text;
+    }
+  }
+  return "";
+}
+
+std::string routine_deterministic(const jsonio::json &routine) {
+  for (const auto &value : routine_characteristic_values(routine)) {
+    const auto &text = value.get_string();
+    if (strcasecmp(text.c_str(), "DETERMINISTIC") == 0) {
+      return "YES";
+    }
+    if (strcasecmp(text.c_str(), "NOT DETERMINISTIC") == 0) {
+      return "NO";
+    }
+  }
+  return "";
+}
+
+std::string routine_security(const jsonio::json &routine) {
+  for (const auto &value : routine_characteristic_values(routine)) {
+    const auto &text = value.get_string();
+    if (strncasecmp(text.c_str(), "SQL SECURITY ", 13) == 0) {
+      return text.substr(13);
+    }
+  }
+  return "";
+}
+
+void validate_routine_characteristics(const jsonio::json &routine) {
+  for (const auto &value : routine_characteristic_values(routine)) {
+    sanitize(value.get_string(), "\\'`");
+  }
+}
+
+void validate_function(const jsonio::json &function) {
+  sanitize(function["name"].get_string(), "\\'`");
+  sanitize(function["returns"].get_string(), "\\'`");
+  validate_routine_characteristics(function);
+  for (const auto &param : function["params"].get_array()) {
+    sanitize(param["name"].get_string(), "\\'`");
+    sanitize(param["type"].get_string(), "\\'`");
+  }
+}
+
+void validate_procedure(const jsonio::json &procedure) {
+  sanitize(procedure["name"].get_string(), "\\'`");
+  validate_routine_characteristics(procedure);
+  for (const auto &param : procedure["params"].get_array()) {
+    if (const auto &mode = param["mode"].get_string();
+        strcasecmp(mode.c_str(), "IN") != 0 &&
+        strcasecmp(mode.c_str(), "OUT") != 0 &&
+        strcasecmp(mode.c_str(), "INOUT") != 0) {
+      throw std::runtime_error("Publish MySQL: Bad Procedure Param Mode");
+    }
+    sanitize(param["name"].get_string(), "\\'`");
+    sanitize(param["type"].get_string(), "\\'`");
+  }
+}
+
+std::string permission_type(const jsonio::json &permission) {
+  const auto &type = permission["type"].get_string();
+  if (strcasecmp(type.c_str(), "table") == 0) {
+    return "TABLE";
+  }
+  if (strcasecmp(type.c_str(), "function") == 0) {
+    return "FUNCTION";
+  }
+  if (strcasecmp(type.c_str(), "procedure") == 0) {
+    return "PROCEDURE";
+  }
+  throw std::runtime_error("Publish MySQL: Bad Permission Type");
+}
+
+std::string permission_grant_type(const std::string &type) {
+  return type == "TABLE" ? "" : type + " ";
+}
+
+std::vector<const char *> permission_operations(const std::string &type) {
+  if (type == "TABLE") {
+    return {"Select", "Insert", "Update", "Delete"};
+  }
+  return {"Execute"};
+}
+
+} // namespace
+
+std::string
+replicate_sql(const std::string &db_name, const jsonio::json &tables,
+              const jsonio::json &functions, const jsonio::json &procedures,
+              const jsonio::json &users, bool report, bool dry_run) {
   std::string bad_prefix{"_sql_"};
   std::string drop_prefix{"_drop_"};
+  sanitize(db_name, "\\'`");
   for (std::map<std::string, std::size_t> table_ids;
        const auto &table : tables.get_array()) {
-    sanitize(table["name"].get_string(), "'`");
+    sanitize(table["name"].get_string(), "\\'`");
     if (table["name"].get_string().rfind(bad_prefix, 0) == 0) {
       throw std::runtime_error("Publish MySQL: Table Bad Prefix");
     }
-    sanitize(table["id"].get_string(), "'`");
+    sanitize(table["id"].get_string(), "\\'`");
+    if (auto engine = table.get_object().find("engine");
+        engine != table.get_object().end()) {
+      validate_engine(engine->second.get_string());
+    }
     if (++table_ids[table["id"].get_string()] > 1) {
       throw std::runtime_error("Publish MySQL: Repeated Table Id");
     }
     for (std::map<std::string, std::size_t> column_ids;
          const auto &column : table["columns"].get_array()) {
-      sanitize(column["name"].get_string(), "'`");
+      sanitize(column["name"].get_string(), "\\'`");
       if (column["name"].get_string().rfind(bad_prefix, 0) == 0) {
         throw std::runtime_error("Publish MySQL: Column Bad Prefix");
       }
-      sanitize(column["type"].get_string(), "'`");
-      sanitize(column["id"].get_string(), "'`");
+      sanitize(column["type"].get_string(), "\\'`");
+      sanitize(column["id"].get_string(), "\\'`");
       if (column["id"].get_string().empty()) {
         throw std::runtime_error("Publish MySQL: Column No Id");
       }
       if (auto default_value = column.at("default"); default_value) {
-        sanitize(default_value->get_string(), "'`");
+        sanitize(default_value->get_string(), "\\'`");
       }
       if (++column_ids[column["id"].get_string()] > 1) {
         throw std::runtime_error("Publish MySQL: Repeated Column Id");
@@ -53,9 +244,10 @@ std::string replicate_sql(const std::string &db_name,
           throw std::runtime_error("Publish MySQL: No Key Column");
         }
         for (const auto &clm : key["columns"].get_array()) {
-          sanitize(clm.get_string(), "'`");
+          sanitize(clm.get_string(), "\\'`");
         }
-        sanitize(key["name"].get_string(), "'`");
+        sanitize(key["name"].get_string(), "\\'`");
+        validate_key_type(key["type"].get_string());
         if (++index_names[key["name"].get_string()] > 1) {
           throw std::runtime_error("Publish MySQL: Repeated Key Name");
         }
@@ -67,28 +259,29 @@ std::string replicate_sql(const std::string &db_name,
     }
     if (auto foreign_keys = table.at("foreign-keys"); foreign_keys) {
       for (const auto &foreign_key : foreign_keys->get_array()) {
-        sanitize(foreign_key["delete"].get_string(), "'`");
-        sanitize(foreign_key["update"].get_string(), "'`");
-        sanitize(foreign_key["table"].get_string(), "'`");
+        sanitize(foreign_key["name"].get_string(), "\\'`");
+        validate_foreign_key_action(foreign_key["delete"].get_string());
+        validate_foreign_key_action(foreign_key["update"].get_string());
+        sanitize(foreign_key["table"].get_string(), "\\'`");
         if (foreign_key["columns"].get_array().size() == 0) {
           throw std::runtime_error("Publish MySQL: No ForeignKey Column");
         }
         for (const auto &clm : foreign_key["columns"].get_array()) {
-          sanitize(clm.get_string(), "'`");
+          sanitize(clm.get_string(), "\\'`");
         }
         if (foreign_key["keys"].get_array().size() == 0) {
           throw std::runtime_error("Publish MySQL: No ForeignKey Key");
         }
         for (const auto &clm : foreign_key["keys"].get_array()) {
-          sanitize(clm.get_string(), "'`");
+          sanitize(clm.get_string(), "\\'`");
         }
       }
     }
     if (auto views = table.at("views"); views) {
       for (const auto &view : views->get_array()) {
-        sanitize(view["name"].get_string(), "'`");
+        sanitize(view["name"].get_string(), "\\'`");
         for (const auto &clm : view["columns"].get_array()) {
-          sanitize(clm.get_string(), "'`");
+          sanitize(clm.get_string(), "\\'`");
         }
         for (const auto &joint : view["joints"].get_array()) {
           if (const auto &type = joint["type"].get_string();
@@ -96,19 +289,39 @@ std::string replicate_sql(const std::string &db_name,
               type != "right outer") {
             throw std::runtime_error("Publish MySQL: Bad Join Type");
           }
-          sanitize(joint["table"].get_string(), "'`");
-          sanitize(joint["as"].get_string(), "'`");
+          sanitize(joint["table"].get_string(), "\\'`");
+          sanitize(joint["as"].get_string(), "\\'`");
           for (const auto &on : joint["ons"].get_array()) {
-            sanitize(on["base"]["table"].get_string(), "'`");
-            sanitize(on["base"]["column"].get_string(), "'`");
-            sanitize(on["foreign"].get_string(), "'`");
+            sanitize(on["base"]["table"].get_string(), "\\'`");
+            sanitize(on["base"]["column"].get_string(), "\\'`");
+            sanitize(on["foreign"].get_string(), "\\'`");
           }
           for (const auto &clm : joint["columns"].get_array()) {
-            sanitize(clm["name"].get_string(), "'`");
-            sanitize(clm["as"].get_string(), "'`");
+            sanitize(clm["name"].get_string(), "\\'`");
+            sanitize(clm["as"].get_string(), "\\'`");
           }
         }
       }
+    }
+    if (auto rows = table.at("rows"); rows) {
+      for (const auto &row : rows->get_array()) {
+        for (const auto &clm : row.get_object()) {
+          sanitize(clm.first, "\\'`");
+        }
+      }
+    }
+  }
+  for (const auto &function : functions.get_array()) {
+    validate_function(function);
+  }
+  for (const auto &procedure : procedures.get_array()) {
+    validate_procedure(procedure);
+  }
+  for (const auto &user : users.get_array()) {
+    sanitize(user["name"].get_string(), "\\'`");
+    for (const auto &permission : user["permissions"].get_array()) {
+      sanitize(permission["subject"].get_string(), "\\'`");
+      permission_type(permission);
     }
   }
 
@@ -469,8 +682,8 @@ set @all_foreign_keys = '';
                           [key["name"].get_string()] = {std::move(key_def),
                                                         std::move(f_key_def)};
         sql += R"(
-set @all_foreign_keys = concat(@all_foreign_keys, ')" +
-               key["name"].get_string() + R"( ');
+set @all_foreign_keys = concat(@all_foreign_keys, '{)" +
+               key["name"].get_string() + R"(}');
 set @old_constraint = null;
 set @old_table = null;
 set @old_key_def = null;
@@ -565,7 +778,7 @@ where
            db_name + R"(' and
     `TABLE_NAME` = ')" +
            table["name"].get_string() + R"(' and
-    instr(@all_foreign_keys, `CONSTRAINT_NAME`) = 0;
+    instr(@all_foreign_keys, concat('{', `CONSTRAINT_NAME`, '}')) = 0;
 set @qry = if (isnull(@sub_query),
     'SET @r = \'No extra foreign keys in ")" +
            table["name"].get_string() +
@@ -659,8 +872,8 @@ set @all_keys = '';
           key_def += '`' + clm.get_string() + '`';
         }
         sql += R"(
-set @all_keys = concat(@all_keys, ')" +
-               key["name"].get_string() + R"( ');
+set @all_keys = concat(@all_keys, '{)" +
+               key["name"].get_string() + R"(}');
 set @old_index = null;
 set @old_key_def = null;
 select
@@ -715,7 +928,7 @@ where
            db_name + R"(' and
     `INFORMATION_SCHEMA`.`STATISTICS`.`TABLE_NAME` = ')" +
            table["name"].get_string() + R"(' and
-    instr(@all_keys, `INDEX_NAME`) = 0;
+    instr(@all_keys, concat('{', `INDEX_NAME`, '}')) = 0;
 set @sub_query = if (isnull(@drop_query), @sub_query,
     concat(@sub_query, @drop_query, ', ')
 );
@@ -826,9 +1039,11 @@ where
     `REFERENCED_TABLE_NAME` is not null and
     `TABLE_SCHEMA` = ')" +
                db_name + R"(' and
+    `TABLE_NAME` = ')" +
+               table["name"].get_string() + R"(' and
     `CONSTRAINT_NAME` = ')" +
                key["name"].get_string() + R"('
-group by `CONSTRAINT_NAME`;
+group by `CONSTRAINT_NAME`, `TABLE_NAME`;
 set @create_query = if (isnull(@old_constraint),
     concat('ALTER TABLE `)" +
                db_name + R"(`.`)" + table["name"].get_string() +
@@ -946,6 +1161,233 @@ set @qry = if (@row_count != 0,
     }
   }
 
+  // Remove extra functions
+  sql += R"(
+set @all_functions = '';
+)";
+  for (const auto &function : functions.get_array()) {
+    sql += R"(
+set @all_functions = concat(@all_functions, '{)" +
+           function["name"].get_string() + R"(}');
+)";
+  }
+  sql += R"(
+set @sub_query = null;
+select group_concat(concat('`)" +
+         db_name + R"(`.`', `ROUTINE_NAME`, '`') SEPARATOR ', ')
+    into @sub_query
+    from `INFORMATION_SCHEMA`.`ROUTINES`
+    where `ROUTINE_SCHEMA` = ')" +
+         db_name + R"(' and `ROUTINE_TYPE` = 'FUNCTION' and
+        instr(@all_functions, concat('{', `ROUTINE_NAME`, '}')) = 0;
+set @qry = if (isnull(@sub_query),
+    'SET @r = \'No extra function.\';'
+,
+    concat('DROP FUNCTION ', @sub_query, ';')
+);
+)";
+  sql += exec;
+
+  // Apply functions
+  if (functions.get_array().size() != 0) {
+    sql += R"(
+set @function_delimiter = concat('d', left(replace(uuid(), '-', ''), 13));
+)";
+  }
+  for (const auto &function : functions.get_array()) {
+    const auto characteristics = routine_characteristics(function);
+    const auto data_access = routine_data_access(function);
+    const auto deterministic = routine_deterministic(function);
+    const auto security = routine_security(function);
+    sql += R"(
+set @old_body = null;
+set @old_returns = null;
+set @old_data_access = null;
+set @old_deterministic = null;
+set @old_security = null;
+set @old_params = null;
+select `ROUTINE_DEFINITION`, `DTD_IDENTIFIER`, `SQL_DATA_ACCESS`,
+        `IS_DETERMINISTIC`, `SECURITY_TYPE`
+    into @old_body, @old_returns, @old_data_access, @old_deterministic,
+        @old_security
+    from `INFORMATION_SCHEMA`.`ROUTINES`
+    where `ROUTINE_SCHEMA` = ')" +
+           db_name + R"(' and
+        `ROUTINE_TYPE` = 'FUNCTION' and
+        `ROUTINE_NAME` = ')" +
+           function["name"].get_string() + R"(';
+set @old_body = trim(@old_body);
+set @old_body = if (
+    upper(left(@old_body, 5)) = 'BEGIN' and upper(right(@old_body, 3)) = 'END',
+    trim(substr(@old_body, 6, length(@old_body) - 8)),
+    @old_body
+);
+select group_concat(concat('`', `PARAMETER_NAME`, '` ', `DTD_IDENTIFIER`)
+        ORDER BY `ORDINAL_POSITION` SEPARATOR ', ')
+    into @old_params
+    from `INFORMATION_SCHEMA`.`PARAMETERS`
+    where `SPECIFIC_SCHEMA` = ')" +
+           db_name + R"(' and
+        `ROUTINE_TYPE` = 'FUNCTION' and
+        `SPECIFIC_NAME` = ')" +
+           function["name"].get_string() + R"(' and
+        `PARAMETER_NAME` is not null;
+set @function_changed =
+    isnull(@old_body) or
+    @old_body != ')" +
+           escape_sql_string(function["body"].get_string()) + R"(' or
+    ifnull(@old_returns, '') != ')" +
+           function["returns"].get_string() + R"(' or
+)" +
+           (data_access.empty() ? "" : R"(    ifnull(@old_data_access, '') != ')" +
+                                       data_access + R"(' or
+)") +
+           (deterministic.empty() ? "" : R"(    ifnull(@old_deterministic, '') != ')" +
+                                        deterministic + R"(' or
+)") +
+           (security.empty() ? "" : R"(    ifnull(@old_security, '') != ')" +
+                                   security + R"(' or
+)") +
+           R"(
+    ifnull(@old_params, '') != ')" +
+           function_params(function) + R"(';
+set @qry = if (@function_changed,
+    'DROP FUNCTION IF EXISTS `)" +
+           db_name + R"(`.`)" + function["name"].get_string() + R"(`;'
+,
+    'SET @r = \'Function Drop )" +
+           function["name"].get_string() + R"( is ok.\';'
+);
+)";
+    sql += exec;
+    sql += R"(
+set @qry = if (@function_changed,
+    concat('DELIMITER ', @function_delimiter, '\n', 'CREATE FUNCTION `)" +
+           db_name + R"(`.`)" + function["name"].get_string() + R"(`()" +
+           function_params(function) + R"() RETURNS )" +
+           function["returns"].get_string() + " " +
+           (characteristics.empty() ? "" : characteristics + " ") + R"(BEGIN )" +
+           escape_sql_string(function["body"].get_string()) +
+           R"( END ', @function_delimiter, '\n', 'DELIMITER ;')
+,
+    'SET @r = \'Function Create )" +
+           function["name"].get_string() + R"( is ok.\';'
+);
+)";
+    sql += exec;
+  }
+
+  // Remove extra procedures
+  sql += R"(
+set @all_procedures = '';
+)";
+  for (const auto &procedure : procedures.get_array()) {
+    sql += R"(
+set @all_procedures = concat(@all_procedures, '{)" +
+           procedure["name"].get_string() + R"(}');
+)";
+  }
+  sql += R"(
+set @sub_query = null;
+select group_concat(concat('`)" +
+         db_name + R"(`.`', `ROUTINE_NAME`, '`') SEPARATOR ', ')
+    into @sub_query
+    from `INFORMATION_SCHEMA`.`ROUTINES`
+    where `ROUTINE_SCHEMA` = ')" +
+         db_name + R"(' and `ROUTINE_TYPE` = 'PROCEDURE' and
+        instr(@all_procedures, concat('{', `ROUTINE_NAME`, '}')) = 0;
+set @qry = if (isnull(@sub_query),
+    'SET @r = \'No extra procedure.\';'
+,
+    concat('DROP PROCEDURE ', @sub_query, ';')
+);
+)";
+  sql += exec;
+
+  // Apply procedures
+  if (procedures.get_array().size() != 0) {
+    sql += R"(
+set @procedure_delimiter = concat('d', left(replace(uuid(), '-', ''), 13));
+)";
+  }
+  for (const auto &procedure : procedures.get_array()) {
+    const auto characteristics = routine_characteristics(procedure);
+    const auto data_access = routine_data_access(procedure);
+    const auto deterministic = routine_deterministic(procedure);
+    const auto security = routine_security(procedure);
+    sql += R"(
+set @old_body = null;
+set @old_data_access = null;
+set @old_deterministic = null;
+set @old_security = null;
+set @old_params = null;
+select `ROUTINE_DEFINITION`, `SQL_DATA_ACCESS`, `IS_DETERMINISTIC`,
+        `SECURITY_TYPE`
+    into @old_body, @old_data_access, @old_deterministic, @old_security
+    from `INFORMATION_SCHEMA`.`ROUTINES`
+    where `ROUTINE_SCHEMA` = ')" +
+           db_name + R"(' and
+        `ROUTINE_TYPE` = 'PROCEDURE' and
+        `ROUTINE_NAME` = ')" +
+           procedure["name"].get_string() + R"(';
+set @old_body = trim(@old_body);
+set @old_body = if (
+    upper(left(@old_body, 5)) = 'BEGIN' and upper(right(@old_body, 3)) = 'END',
+    trim(substr(@old_body, 6, length(@old_body) - 8)),
+    @old_body
+);
+select group_concat(concat(`PARAMETER_MODE`, ' `', `PARAMETER_NAME`, '` ',
+        `DTD_IDENTIFIER`) ORDER BY `ORDINAL_POSITION` SEPARATOR ', ')
+    into @old_params
+    from `INFORMATION_SCHEMA`.`PARAMETERS`
+    where `SPECIFIC_SCHEMA` = ')" +
+           db_name + R"(' and
+        `ROUTINE_TYPE` = 'PROCEDURE' and
+        `SPECIFIC_NAME` = ')" +
+           procedure["name"].get_string() + R"(' and
+        `PARAMETER_NAME` is not null;
+set @procedure_changed =
+    isnull(@old_body) or
+    @old_body != ')" +
+           escape_sql_string(procedure["body"].get_string()) + R"(' or
+)" +
+           (data_access.empty() ? "" : R"(    ifnull(@old_data_access, '') != ')" +
+                                       data_access + R"(' or
+)") +
+           (deterministic.empty() ? "" : R"(    ifnull(@old_deterministic, '') != ')" +
+                                        deterministic + R"(' or
+)") +
+           (security.empty() ? "" : R"(    ifnull(@old_security, '') != ')" +
+                                   security + R"(' or
+)") +
+           R"(
+    ifnull(@old_params, '') != ')" +
+           procedure_params(procedure) + R"(';
+set @qry = if (@procedure_changed,
+    'DROP PROCEDURE IF EXISTS `)" +
+           db_name + R"(`.`)" + procedure["name"].get_string() + R"(`;'
+,
+    'SET @r = \'Procedure )" +
+           procedure["name"].get_string() + R"( is ok.\';'
+);
+)";
+    sql += exec;
+    sql += R"(
+set @qry = if (@procedure_changed,
+    concat('DELIMITER ', @procedure_delimiter, '\n', 'CREATE PROCEDURE `)" +
+           db_name + R"(`.`)" + procedure["name"].get_string() + R"(`()" +
+           procedure_params(procedure) + R"() )" +
+           (characteristics.empty() ? "" : characteristics + " ") + R"(BEGIN )" +
+           escape_sql_string(procedure["body"].get_string()) +
+           R"( END ', @procedure_delimiter, '\n', 'DELIMITER ;')
+,
+    'SET @r = \'Procedure )" +
+           procedure["name"].get_string() + R"( is ok.\';'
+);
+)";
+    sql += exec;
+  }
+
   // Apply users
   std::size_t index = 0;
   for (const auto &user : users.get_array()) {
@@ -964,29 +1406,44 @@ set @qry = if (isnull(@old_user),
 );
 )";
     sql += exec;
-    sql += "set @all_grants = ' ";
-    // Revoke permissions of extra tables
+    sql += "set @all_grants = '';";
+    // Revoke permissions of extra subjects
     for (const auto &permission : user["permissions"].get_array()) {
-      sql += permission["subject"].get_string() + ' ';
+      sql += "\nset @all_grants = concat(@all_grants, '{";
+      sql += permission_type(permission);
+      sql += ":";
+      sql += permission["subject"].get_string();
+      sql += "}');";
     }
-    sql += "';";
     sql += R"(
 set @sub_query = null;
-select group_concat(concat('`', `table_name`, '`') separator ', ')
+select group_concat(`grant_name` separator ', ')
 into @sub_query
-from `mysql`.`tables_priv`
-where
-    `Db` = ')" +
+from (
+    select concat('`', `table_name`, '`') as `grant_name`
+    from `mysql`.`tables_priv`
+    where
+        `Db` = ')" +
            db_name + R"(' and
-    `user` = ')" +
+        `user` = ')" +
            user["name"].get_string() + R"(' and
-    instr(@all_grants, `table_name`) = 0;
+        instr(@all_grants, concat('{TABLE:', `table_name`, '}')) = 0
+    union all
+    select concat(`routine_type`, ' `', `routine_name`, '`') as `grant_name`
+    from `mysql`.`procs_priv`
+    where
+        `Db` = ')" +
+           db_name + R"(' and
+        `user` = ')" +
+           user["name"].get_string() + R"(' and
+        instr(@all_grants, concat('{', `routine_type`, ':', `routine_name`, '}')) = 0
+) `extra_grants`;
 set @qry = if (isnull(@sub_query),
     'SET @r = \'No extra permissions for ")" +
            user["name"].get_string() +
            R"(".\';'
 ,
-    'REVOKE IF EXISTS SELECT, INSERT, UPDATE, DELETE ON `)" +
+    'REVOKE IF EXISTS SELECT, INSERT, UPDATE, DELETE, EXECUTE ON `)" +
            db_name + R"(`.* FROM \')" + user["name"].get_string() +
            R"(\';'
 );
@@ -995,9 +1452,10 @@ set @qry = if (isnull(@sub_query),
 
     // Adjust permissions
     for (const auto &permission : user["permissions"].get_array()) {
+      const auto type = permission_type(permission);
       std::string grant_operations, revoke_operations;
       auto &permissions = permission["operations"].get_array();
-      for (auto operation : {"Select", "Insert", "Update", "Delete"}) {
+      for (auto operation : permission_operations(type)) {
         if (std::find_if(permissions.begin(), permissions.end(), [&](auto &s) {
               return strcasecmp(s.get_string().c_str(), operation) == 0;
             }) != permissions.end()) {
@@ -1014,7 +1472,9 @@ set @qry = if (isnull(@sub_query),
       }
       sql += R"(
 set @old_grant = null;
-select `table_priv` into @old_grant
+)";
+      if (type == "TABLE") {
+        sql += R"(select `table_priv` into @old_grant
 from `mysql`.`tables_priv`
 where
     `Db` = ')" +
@@ -1024,6 +1484,20 @@ where
     `table_name` = ')" +
              permission["subject"].get_string() + R"(';
 )";
+      } else {
+        sql += R"(select `proc_priv` into @old_grant
+from `mysql`.`procs_priv`
+where
+    `Db` = ')" +
+             db_name + R"(' and
+    `user` = ')" +
+             user["name"].get_string() + R"(' and
+    `routine_type` = ')" +
+             type + R"(' and
+    `routine_name` = ')" +
+             permission["subject"].get_string() + R"(';
+)";
+      }
       if (!grant_operations.empty()) {
         sql += R"(
 set @qry = if (@old_grant = ')" +
@@ -1033,7 +1507,8 @@ set @qry = if (@old_grant = ')" +
                user["name"].get_string() + R"(" is ok.\';'
 ,
     'GRANT )" + grant_operations +
-               R"( ON `)" + db_name + R"(`.`)" +
+               R"( ON )" + permission_grant_type(type) + R"(`)" + db_name +
+               R"(`.`)" +
                permission["subject"].get_string() + R"(` TO \')" +
                user["name"].get_string() + R"(\';'
 );
@@ -1049,7 +1524,8 @@ set @qry = if (@old_grant = ')" +
                user["name"].get_string() + R"(" is ok.\';'
 ,
     'REVOKE IF EXISTS )" +
-               revoke_operations + R"( ON `)" + db_name + R"(`.`)" +
+               revoke_operations + R"( ON )" + permission_grant_type(type) +
+               R"(`)" + db_name + R"(`.`)" +
                permission["subject"].get_string() + R"(` FROM \')" +
                user["name"].get_string() + R"(\';'
 );
