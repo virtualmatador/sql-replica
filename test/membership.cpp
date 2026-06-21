@@ -1,22 +1,9 @@
 #include <iostream>
 #include <string>
 
-#include <sqlr.h>
+#include <schema.h>
 
 #include "test_util.h"
-
-bool contains(const std::string &text, const std::string &needle) {
-  return text.find(needle) != std::string::npos;
-}
-
-bool expect_contains(const std::string &text, const std::string &needle,
-                     const char *test) {
-  if (contains(text, needle)) {
-    return true;
-  }
-  std::cerr << test << ": missing " << needle << std::endl;
-  return false;
-}
 
 bool t01() {
   auto tables = read_json(R"([
@@ -52,22 +39,85 @@ bool t01() {
       ]
     }
   ])");
-  const auto sql = replicate_sql("demo", tables, empty, empty, users, false, true);
-  return expect_contains(sql, "set @all_foreign_keys = concat(@all_foreign_keys, '{fk_account}');", __FUNCTION__) &&
-         expect_contains(sql, "`CONSTRAINT_SCHEMA` = 'demo' and\n    `CONSTRAINT_NAME` = 'fk_account'", __FUNCTION__) &&
-         expect_contains(sql, "instr(@all_foreign_keys, concat('{', `CONSTRAINT_NAME`, '}')) = 0", __FUNCTION__) &&
-         expect_contains(sql, "`TABLE_SCHEMA` = 'demo' and\n    `TABLE_NAME` = 'account' and\n    `CONSTRAINT_NAME` = 'fk_account'", __FUNCTION__) &&
-         expect_contains(sql, "group by `CONSTRAINT_NAME`, `TABLE_NAME`;", __FUNCTION__) &&
-         expect_contains(sql, "set @all_keys = concat(@all_keys, '{idx_account}');", __FUNCTION__) &&
-         expect_contains(sql, "instr(@all_keys, concat('{', `INDEX_NAME`, '}')) = 0", __FUNCTION__) &&
-         expect_contains(sql, "set @all_grants = concat(@all_grants, '{TABLE:account}');", __FUNCTION__) &&
-         expect_contains(sql, "set @all_grants = concat(@all_grants, '{FUNCTION:double_value}');", __FUNCTION__) &&
-         expect_contains(sql, "set @all_grants = concat(@all_grants, '{PROCEDURE:set_value}');", __FUNCTION__) &&
-         expect_contains(sql, "instr(@all_grants, concat('{TABLE:', `table_name`, '}')) = 0", __FUNCTION__) &&
-         expect_contains(sql, "instr(@all_grants, concat('{', `routine_type`, ':', `routine_name`, '}')) = 0", __FUNCTION__) &&
-         expect_contains(sql, "GRANT Select ON `demo`.`account` TO \\'Alice\\';", __FUNCTION__) &&
-         expect_contains(sql, "GRANT Execute ON FUNCTION `demo`.`double_value` TO \\'Alice\\';", __FUNCTION__) &&
-         expect_contains(sql, "GRANT Execute ON PROCEDURE `demo`.`set_value` TO \\'Alice\\';", __FUNCTION__);
+  const auto sql =
+      Schema(schema(tables, empty, empty, users), false, true).replicate_sql();
+  return expect_contains(sql,
+                         "set @all_foreign_keys = concat(@all_foreign_keys, "
+                         "'{fk_account}');",
+                         __FUNCTION__) &&
+         expect_contains(sql, "set @_sql_users =", __FUNCTION__) &&
+         expect_contains(sql, "from `mysql`.`user`", __FUNCTION__) &&
+         expect_contains(sql, "from `mysql`.`tables_priv`", __FUNCTION__) &&
+         expect_contains(sql, "from `mysql`.`procs_priv`", __FUNCTION__) &&
+         expect_contains(sql, "where `Db` = 'demo'", __FUNCTION__) &&
+         expect_not_contains(sql, "DROP USER", __FUNCTION__) &&
+         expect_contains(sql, "set @_sql_permissions =", __FUNCTION__) &&
+         expect_contains(sql,
+                         "set @all_users = concat(@all_users, '{Alice}');",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "instr(@all_users, concat('{', `user`, '}')) = 0",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "REVOKE IF EXISTS SELECT, INSERT, UPDATE, DELETE, "
+                         "EXECUTE ON `demo`.* FROM ",
+                         __FUNCTION__) &&
+         expect_contains(sql, "from json_table(@_sql_foreign_keys",
+                         __FUNCTION__) &&
+         expect_contains(
+             sql, "instr(@all_foreign_keys, concat('{', `name`, '}')) = 0",
+             __FUNCTION__) &&
+         expect_contains(
+             sql,
+             "where not (`table` = @old_table and `name` = @old_constraint)",
+             __FUNCTION__) &&
+         expect_contains(sql, "json_array_append(@_sql_foreign_keys",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "set @all_keys = concat(@all_keys, '{idx_account}');",
+                         __FUNCTION__) &&
+         expect_contains(sql, "from json_table(@_sql_indexes", __FUNCTION__) &&
+         expect_contains(sql, "instr(@all_keys, concat('{', `name`, '}')) = 0",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "where `table` != 'account' or `foreign_key` = true",
+                         __FUNCTION__) &&
+         expect_contains(sql, "json_array_append(@_sql_indexes",
+                         __FUNCTION__) &&
+         expect_contains(
+             sql, "set @all_grants = concat(@all_grants, '{TABLE:account}');",
+             __FUNCTION__) &&
+         expect_contains(sql,
+                         "set @all_grants = concat(@all_grants, "
+                         "'{FUNCTION:double_value}');",
+                         __FUNCTION__) &&
+         expect_contains(
+             sql,
+             "set @all_grants = concat(@all_grants, '{PROCEDURE:set_value}');",
+             __FUNCTION__) &&
+         expect_contains(sql, "from json_table(@_sql_permissions",
+                         __FUNCTION__) &&
+         expect_contains(
+             sql, "instr(@all_grants, concat('{TABLE:', `subject`, '}')) = 0",
+             __FUNCTION__) &&
+         expect_contains(
+             sql,
+             "instr(@all_grants, concat('{', `type`, ':', `subject`, '}')) = 0",
+             __FUNCTION__) &&
+         expect_contains(sql, "json_array_append(@_sql_users", __FUNCTION__) &&
+         expect_contains(sql, "json_array_append(@_sql_permissions",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "GRANT Select ON `demo`.`account` TO \\'Alice\\';",
+                         __FUNCTION__) &&
+         expect_contains(
+             sql,
+             "GRANT Execute ON FUNCTION `demo`.`double_value` TO \\'Alice\\';",
+             __FUNCTION__) &&
+         expect_contains(
+             sql,
+             "GRANT Execute ON PROCEDURE `demo`.`set_value` TO \\'Alice\\';",
+             __FUNCTION__);
 }
 
 int main() {

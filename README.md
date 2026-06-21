@@ -12,21 +12,44 @@ How the magic happens:
 
 # Input
 
-The following items are needed:
-- database name
-- tables definition json array file
-- functions definition json array file, optional
-- procedures definition json array file, optional
-- users definition json array file, optional
-- report flag to add informative logs to SQL output, optional
-- dry-run flag to list required changes without applying them, optional
+`Schema` receives one JSON schema object. The object contains the database name
+and optional schema sections, and `Schema::replicate_sql()` generates the SQL.
+
+| Field Name | Required | Type | Description |
+| --- | --- | --- | --- |
+| name | Yes | string | The database/schema name |
+| tables | No | array or null | The array of table objects |
+| functions | No | array or null | The array of function objects |
+| procedures | No | array or null | The array of procedure objects |
+| users | No | array or null | The array of user objects |
+
+Example:
+```json
+{
+  "name": "demo",
+  "tables": null,
+  "functions": null,
+  "procedures": null,
+  "users": null
+}
+```
+
+Optional section behavior is intentional and consistent:
+
+- An omitted section or a section set to `null` is ignored.
+- A section set to `[]` is reconciled as empty, so existing database objects for
+  that section may be removed. The `users` section is different: MySQL accounts
+  are server-level objects, so empty users removes database permissions for
+  users with grants on this database; it does not drop user accounts.
+
+The report flag and dry-run flag are still separate function arguments.
 
 ## Tables
 
-The tables are defined by an array of the table objects.
+The `tables` section is an array of table objects.
 
 Example:
-```
+```json
 [
 ]
 ```
@@ -46,7 +69,7 @@ A table is an object that has the following fields:
 | views | No | array | The array of the view objects |
 
 Example:
-```
+```json
 {
     "name": "user",
     "id": "93B099B08D144B40BCC918FA24831669",
@@ -76,7 +99,7 @@ A column is an object that has the following fields:
 | default | No | string | The default value for the column |
 
 Example:
-```
+```json
 {
     "id": "76AC03C95026487AB55A590C48FE4C8F",
     "name": "id",
@@ -98,7 +121,7 @@ A key is an object that has the following fields:
 | columns | Yes | array | The name of the columns of the key |
 
 Example:
-```
+```json
 {
     "name": "PRIMARY",
     "type": "primary key",
@@ -122,7 +145,7 @@ A foreign key is an object that has the following fields:
 | keys | Yes | array | The name of columns in the foreign table |
 
 Example:
-```
+```json
 {
     "name": "fk_member_user",
     "delete": "RESTRICT",
@@ -148,7 +171,7 @@ A view is an object that has the following fields:
 | joints | Yes | array | The array of the joint objects, joins of the view |
 
 Example:
-```
+```json
 {
     "name": "membership",
     "columns": [
@@ -172,7 +195,7 @@ A joint is an object that has the following fields:
 | ons | Yes | array | The array of the relation objects, between this table and the rest of the view |
 
 Example:
-```
+```json
 {
     "table": "project",
     "as": "prj",
@@ -195,7 +218,7 @@ A relation is an object that has the following fields:
 | base | Yes | object | The table and the column to compare with |
 
 Example:
-```
+```json
 {
   "foreign": "project",
   "base": {
@@ -207,10 +230,10 @@ Example:
 
 ## Functions (optional)
 
-Functions are defined by a json array file.
+The `functions` section is an array of function objects.
 
 Example:
-```
+```json
 [
 ]
 ```
@@ -228,7 +251,7 @@ A function is an object that has the following fields:
 | body | Yes | string | The function body, without the top `BEGIN` and bottom `END` |
 
 Example:
-```
+```json
 {
     "name": "double_value",
     "returns": "int",
@@ -254,10 +277,10 @@ A function parameter is an object that has the following fields:
 
 ## Procedures (optional)
 
-Procedures are defined by a json array file.
+The `procedures` section is an array of procedure objects.
 
 Example:
-```
+```json
 [
 ]
 ```
@@ -274,7 +297,7 @@ A procedure is an object that has the following fields:
 | body | Yes | string | The procedure body, without the top `BEGIN` and bottom `END` |
 
 Example:
-```
+```json
 {
     "name": "set_value",
     "characteristics": ["MODIFIES SQL DATA", "SQL SECURITY INVOKER"],
@@ -306,10 +329,14 @@ A procedure parameter is an object that has the following fields:
 
 ## Users (optional)
 
-The users are defined by an array of the user objects.
+The `users` section is an array of user objects. User accounts are server-level
+objects, not database objects, so sqlr never drops MySQL users. Declared users
+are created if missing, and their permissions for this database are reconciled.
+Users omitted from this section keep their accounts, but their permissions on
+this database are removed.
 
 Example:
-```
+```json
 [
 ]
 ```
@@ -324,7 +351,7 @@ A user is an object that has the following fields:
 | permissions | Yes | array | The array of the permission objects |
 
 Example:
-```
+```json
 {
   "name": "Alice",
   "permissions": [
@@ -343,7 +370,7 @@ A permission is an object that has the following fields:
 | operations | Yes | array | The array of the operations that user is allowed to do on the subject |
 
 Example permission for table:
-```
+```json
 {
   "type": "table",
   "subject": "user",
@@ -357,7 +384,7 @@ Example permission for table:
 ```
 
 Example permission for function:
-```
+```json
 {
   "type": "function",
   "subject": "active_user_count",
@@ -374,4 +401,5 @@ The output is a SQL code that will apply required changes in a server.
 # Remarks
 
 - The GUID of the tables and columns shouldn't be changed through out the lifetime of the project. Changing them will cause data loss.
-- The account of the new users are locked to prevent unwanted access. After applying the output, admins need to alter new users to set password and unlock the accoutn. e.g. ALTER USER 'Alice' IDENTIFIED BY "${password_for_alice}" ACCOUNT UNLOCK;
+- New user accounts are locked to prevent unwanted access. After applying the output, admins need to alter new users to set a password and unlock the account. e.g. ALTER USER 'Alice' IDENTIFIED BY "${password_for_alice}" ACCOUNT UNLOCK;
+- User accounts are not dropped by sqlr. Remove or lock accounts outside sqlr when a server-level account is no longer needed. To remove a user's access to this database, omit the user from the `users` section or set `users` to `[]`.

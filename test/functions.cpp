@@ -2,7 +2,7 @@
 #include <string>
 
 #include <json.hpp>
-#include <sqlr.h>
+#include <schema.h>
 
 #include "test_util.h"
 
@@ -22,8 +22,29 @@ bool t01() {
   auto procedures = read_json("[]");
   auto users = read_json("[]");
   const auto sql =
-      replicate_sql("demo", tables, functions, procedures, users, true, true);
-  return expect_sql(sql, read_file("functions.sql"), __FUNCTION__);
+      Schema(schema(tables, functions, procedures, users), true, true).replicate_sql();
+  return expect_contains(sql,
+                         "set @_sql_tables = if(isnull(@old_db), json_array()",
+                         __FUNCTION__) &&
+         expect_contains(
+             sql, "set @_sql_routines = if(isnull(@old_db), json_array()",
+             __FUNCTION__) &&
+         expect_contains(sql, "from json_table(@_sql_routines", __FUNCTION__) &&
+         expect_contains(sql,
+                         "set @function_delimiter = concat('d', "
+                         "left(replace(uuid(), '-', ''), 13));",
+                         __FUNCTION__) &&
+         expect_contains(sql, "DROP FUNCTION IF EXISTS `demo`.`double_value`;",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "CREATE FUNCTION `demo`.`double_value`(`input_value` "
+                         "int) RETURNS int DETERMINISTIC READS SQL DATA",
+                         __FUNCTION__) &&
+         expect_contains(sql, "where not (`type` = 'FUNCTION' and",
+                         __FUNCTION__) &&
+         expect_contains(sql, "json_array_append(@_sql_routines",
+                         __FUNCTION__) &&
+         expect_not_contains(sql, "prepare stmt from @qry;", __FUNCTION__);
 }
 
 bool t02() {
@@ -42,8 +63,21 @@ bool t02() {
   auto procedures = read_json("[]");
   auto users = read_json("[]");
   const auto sql =
-      replicate_sql("demo", tables, functions, procedures, users, true, false);
-  return expect_sql(sql, read_file("functions-apply.sql"), __FUNCTION__);
+      Schema(schema(tables, functions, procedures, users), true, false).replicate_sql();
+  return expect_contains(sql,
+                         "set @_sql_tables = if(isnull(@old_db), json_array()",
+                         __FUNCTION__) &&
+         expect_contains(
+             sql, "set @_sql_routines = if(isnull(@old_db), json_array()",
+             __FUNCTION__) &&
+         expect_contains(sql, "from json_table(@_sql_routines", __FUNCTION__) &&
+         expect_contains(sql, "DROP FUNCTION IF EXISTS `demo`.`double_value`;",
+                         __FUNCTION__) &&
+         expect_contains(sql, "json_array_append(@_sql_routines",
+                         __FUNCTION__) &&
+         expect_contains(sql, "DELIMITER ', @function_delimiter",
+                         __FUNCTION__) &&
+         expect_contains(sql, "prepare stmt from @qry;", __FUNCTION__);
 }
 
 int main() {

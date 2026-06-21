@@ -2,7 +2,7 @@
 #include <iostream>
 #include <string>
 
-#include <sqlr.h>
+#include <schema.h>
 
 #include "test_util.h"
 
@@ -18,9 +18,11 @@ bool expect_throw(const std::function<void()> &fn, const char *test) {
 
 bool t01_bad_db_name() {
   auto empty = read_json("[]");
-  return expect_throw([&] {
-    replicate_sql("demo\\", empty, empty, empty, empty, true, true);
-  }, __FUNCTION__);
+  return expect_throw(
+      [&] {
+        Schema(schema("demo\\", empty, empty, empty, empty), true, true).replicate_sql();
+      },
+      __FUNCTION__);
 }
 
 bool t02_bad_engine() {
@@ -35,9 +37,9 @@ bool t02_bad_engine() {
     }
   ])");
   auto empty = read_json("[]");
-  return expect_throw([&] {
-    replicate_sql("demo", tables, empty, empty, empty, true, true);
-  }, __FUNCTION__);
+  return expect_throw(
+      [&] { Schema(schema(tables, empty, empty, empty), true, true).replicate_sql(); },
+      __FUNCTION__);
 }
 
 bool t03_bad_key_type() {
@@ -54,9 +56,9 @@ bool t03_bad_key_type() {
     }
   ])");
   auto empty = read_json("[]");
-  return expect_throw([&] {
-    replicate_sql("demo", tables, empty, empty, empty, true, true);
-  }, __FUNCTION__);
+  return expect_throw(
+      [&] { Schema(schema(tables, empty, empty, empty), true, true).replicate_sql(); },
+      __FUNCTION__);
 }
 
 bool t04_bad_foreign_key_action() {
@@ -80,9 +82,9 @@ bool t04_bad_foreign_key_action() {
     }
   ])");
   auto empty = read_json("[]");
-  return expect_throw([&] {
-    replicate_sql("demo", tables, empty, empty, empty, true, true);
-  }, __FUNCTION__);
+  return expect_throw(
+      [&] { Schema(schema(tables, empty, empty, empty), true, true).replicate_sql(); },
+      __FUNCTION__);
 }
 
 bool t05_unknown_table_field() {
@@ -97,9 +99,9 @@ bool t05_unknown_table_field() {
     }
   ])");
   auto empty = read_json("[]");
-  return expect_throw([&] {
-    replicate_sql("demo", tables, empty, empty, empty, true, true);
-  }, __FUNCTION__);
+  return expect_throw(
+      [&] { Schema(schema(tables, empty, empty, empty), true, true).replicate_sql(); },
+      __FUNCTION__);
 }
 
 bool t06_bad_user_subject() {
@@ -112,9 +114,9 @@ bool t06_bad_user_subject() {
       ]
     }
   ])");
-  return expect_throw([&] {
-    replicate_sql("demo", empty, empty, empty, users, true, true);
-  }, __FUNCTION__);
+  return expect_throw(
+      [&] { Schema(schema(empty, empty, empty, users), true, true).replicate_sql(); },
+      __FUNCTION__);
 }
 
 bool t07_bad_permission_type() {
@@ -127,9 +129,9 @@ bool t07_bad_permission_type() {
       ]
     }
   ])");
-  return expect_throw([&] {
-    replicate_sql("demo", empty, empty, empty, users, true, true);
-  }, __FUNCTION__);
+  return expect_throw(
+      [&] { Schema(schema(empty, empty, empty, users), true, true).replicate_sql(); },
+      __FUNCTION__);
 }
 
 int main() {

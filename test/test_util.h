@@ -16,6 +16,24 @@ jsonio::json read_json(const std::string &text) {
   return json;
 }
 
+jsonio::json schema(const std::string &name, const jsonio::json &tables,
+                    const jsonio::json &functions,
+                    const jsonio::json &procedures, const jsonio::json &users) {
+  jsonio::json result = jsonio::json_obj{};
+  auto &object = result.get_object();
+  object["name"] = name;
+  object["tables"] = tables;
+  object["functions"] = functions;
+  object["procedures"] = procedures;
+  object["users"] = users;
+  return result;
+}
+
+jsonio::json schema(const jsonio::json &tables, const jsonio::json &functions,
+                    const jsonio::json &procedures, const jsonio::json &users) {
+  return schema("demo", tables, functions, procedures, users);
+}
+
 std::string read_file(const std::string &name) {
   std::ifstream stream{std::string{SQLR_TEST_DIR} + "/" + name};
   return {std::istreambuf_iterator<char>{stream},
@@ -50,6 +68,24 @@ bool expect_sql(const std::string &actual, const std::string &expected,
     return false;
   }
   return true;
+}
+
+bool expect_contains(const std::string &text, const std::string &needle,
+                     const char *test) {
+  if (text.find(needle) != std::string::npos) {
+    return true;
+  }
+  std::cerr << test << ": missing " << needle << std::endl;
+  return false;
+}
+
+bool expect_not_contains(const std::string &text, const std::string &needle,
+                         const char *test) {
+  if (text.find(needle) == std::string::npos) {
+    return true;
+  }
+  std::cerr << test << ": unexpected " << needle << std::endl;
+  return false;
 }
 
 #endif // SQLR_TEST_UTIL_H
