@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <initializer_list>
 #include <map>
 #include <sstream>
 #include <vector>
@@ -51,6 +52,17 @@ void validate_foreign_key_action(const std::string &action) {
     }
   }
   throw std::runtime_error("Publish MySQL: Bad ForeignKey Action");
+}
+
+void validate_fields(const jsonio::json &object,
+                     std::initializer_list<const char *> allowed,
+                     const char *kind) {
+  for (const auto &[key, value] : object.get_object()) {
+    if (std::find(allowed.begin(), allowed.end(), key) == allowed.end()) {
+      throw std::runtime_error(std::string{"Publish MySQL: Unknown "} + kind +
+                               " Field");
+    }
+  }
 }
 
 std::string escape_sql_string(const std::string &input) {
@@ -147,19 +159,26 @@ void validate_routine_characteristics(const jsonio::json &routine) {
 }
 
 void validate_function(const jsonio::json &function) {
+  validate_fields(function, {"name", "returns", "characteristics", "params",
+                             "body"},
+                  "Function");
   sanitize(function["name"].get_string(), "\\'`");
   sanitize(function["returns"].get_string(), "\\'`");
   validate_routine_characteristics(function);
   for (const auto &param : function["params"].get_array()) {
+    validate_fields(param, {"name", "type"}, "Function Param");
     sanitize(param["name"].get_string(), "\\'`");
     sanitize(param["type"].get_string(), "\\'`");
   }
 }
 
 void validate_procedure(const jsonio::json &procedure) {
+  validate_fields(procedure, {"name", "characteristics", "params", "body"},
+                  "Procedure");
   sanitize(procedure["name"].get_string(), "\\'`");
   validate_routine_characteristics(procedure);
   for (const auto &param : procedure["params"].get_array()) {
+    validate_fields(param, {"mode", "name", "type"}, "Procedure Param");
     if (const auto &mode = param["mode"].get_string();
         strcasecmp(mode.c_str(), "IN") != 0 &&
         strcasecmp(mode.c_str(), "OUT") != 0 &&
@@ -207,6 +226,10 @@ replicate_sql(const std::string &db_name, const jsonio::json &tables,
   sanitize(db_name, "\\'`");
   for (std::map<std::string, std::size_t> table_ids;
        const auto &table : tables.get_array()) {
+    validate_fields(table,
+                    {"id", "name", "engine", "columns", "keys",
+                     "foreign-keys", "views"},
+                    "Table");
     sanitize(table["name"].get_string(), "\\'`");
     if (table["name"].get_string().rfind(bad_prefix, 0) == 0) {
       throw std::runtime_error("Publish MySQL: Table Bad Prefix");
@@ -221,6 +244,9 @@ replicate_sql(const std::string &db_name, const jsonio::json &tables,
     }
     for (std::map<std::string, std::size_t> column_ids;
          const auto &column : table["columns"].get_array()) {
+      validate_fields(column, {"id", "name", "type", "auto", "null",
+                               "default"},
+                      "Column");
       sanitize(column["name"].get_string(), "\\'`");
       if (column["name"].get_string().rfind(bad_prefix, 0) == 0) {
         throw std::runtime_error("Publish MySQL: Column Bad Prefix");
@@ -240,6 +266,7 @@ replicate_sql(const std::string &db_name, const jsonio::json &tables,
     if (auto keys = table.at("keys"); keys) {
       std::map<std::string, std::size_t> index_names;
       for (const auto &key : keys->get_array()) {
+        validate_fields(key, {"name", "type", "columns"}, "Key");
         if (key["columns"].get_array().size() == 0) {
           throw std::runtime_error("Publish MySQL: No Key Column");
         }
@@ -259,6 +286,10 @@ replicate_sql(const std::string &db_name, const jsonio::json &tables,
     }
     if (auto foreign_keys = table.at("foreign-keys"); foreign_keys) {
       for (const auto &foreign_key : foreign_keys->get_array()) {
+        validate_fields(foreign_key,
+                        {"name", "delete", "update", "columns", "table",
+                         "keys"},
+                        "ForeignKey");
         sanitize(foreign_key["name"].get_string(), "\\'`");
         validate_foreign_key_action(foreign_key["delete"].get_string());
         validate_foreign_key_action(foreign_key["update"].get_string());
@@ -279,11 +310,14 @@ replicate_sql(const std::string &db_name, const jsonio::json &tables,
     }
     if (auto views = table.at("views"); views) {
       for (const auto &view : views->get_array()) {
+        validate_fields(view, {"name", "columns", "joints"}, "View");
         sanitize(view["name"].get_string(), "\\'`");
         for (const auto &clm : view["columns"].get_array()) {
           sanitize(clm.get_string(), "\\'`");
         }
         for (const auto &joint : view["joints"].get_array()) {
+          validate_fields(joint, {"table", "as", "type", "columns", "ons"},
+                          "Joint");
           if (const auto &type = joint["type"].get_string();
               type != "inner" && type != "left outer" &&
               type != "right outer") {
@@ -292,21 +326,17 @@ replicate_sql(const std::string &db_name, const jsonio::json &tables,
           sanitize(joint["table"].get_string(), "\\'`");
           sanitize(joint["as"].get_string(), "\\'`");
           for (const auto &on : joint["ons"].get_array()) {
+            validate_fields(on, {"foreign", "base"}, "Relation");
+            validate_fields(on["base"], {"table", "column"}, "Relation Base");
             sanitize(on["base"]["table"].get_string(), "\\'`");
             sanitize(on["base"]["column"].get_string(), "\\'`");
             sanitize(on["foreign"].get_string(), "\\'`");
           }
           for (const auto &clm : joint["columns"].get_array()) {
+            validate_fields(clm, {"name", "as"}, "View Column");
             sanitize(clm["name"].get_string(), "\\'`");
             sanitize(clm["as"].get_string(), "\\'`");
           }
-        }
-      }
-    }
-    if (auto rows = table.at("rows"); rows) {
-      for (const auto &row : rows->get_array()) {
-        for (const auto &clm : row.get_object()) {
-          sanitize(clm.first, "\\'`");
         }
       }
     }
@@ -318,8 +348,11 @@ replicate_sql(const std::string &db_name, const jsonio::json &tables,
     validate_procedure(procedure);
   }
   for (const auto &user : users.get_array()) {
+    validate_fields(user, {"name", "permissions"}, "User");
     sanitize(user["name"].get_string(), "\\'`");
     for (const auto &permission : user["permissions"].get_array()) {
+      validate_fields(permission, {"type", "subject", "operations"},
+                      "Permission");
       sanitize(permission["subject"].get_string(), "\\'`");
       permission_type(permission);
     }
@@ -1113,49 +1146,6 @@ set @qry = 'CREATE OR REPLACE VIEW `)" +
           }
         }
         sql += columns + from + R"(;';)";
-        sql += exec;
-      }
-    }
-  }
-
-  // Insert rows
-  for (const auto &table : tables.get_array()) {
-    if (auto rows = table.at("rows"); rows) {
-      sql += R"(
-set @row_count = 0;
-SELECT COUNT(*) into @row_count FROM `)" +
-             db_name + R"(`.`)" + table["name"].get_string() + R"(`;
-)";
-      for (const auto &row : rows->get_array()) {
-        std::string values;
-        sql += R"(
-set @sub_query = 'INSERT `)" +
-               db_name + R"(`.`)" + table["name"].get_string() +
-               R"(`(
-)";
-        for (const auto &clm : row.get_object()) {
-          if (!values.empty()) {
-            sql += ", ";
-            values += ", ";
-          }
-          sql += '`' + clm.first + '`';
-          for (const auto c : clm.second.get_string()) {
-            if (c == '\'') {
-              values += "\\'";
-            } else {
-              values += c;
-            }
-          }
-        }
-        sql += ")VALUES(" + values + R"();';
-set @qry = if (@row_count != 0,
-    'SET @r = \'No rows inserted for ")" +
-               table["name"].get_string() +
-               R"(".\';'
-,
-    @sub_query
-);
-)";
         sql += exec;
       }
     }

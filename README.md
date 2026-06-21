@@ -44,7 +44,6 @@ A table is an object that has the following fields:
 | keys | No | array | The array of the key objects |
 | foreign-keys | No | array | The array of the foreign-key objects |
 | views | No | array | The array of the view objects |
-| rows | No | array | The array of the rows to initialize the table |
 
 Example:
 ```
@@ -59,8 +58,6 @@ Example:
     "foreign-keys": [
     ],
     "views": [
-    ],
-    "rows": [
     ]
 }
 ```
@@ -207,24 +204,6 @@ Example:
   }
 }
 ```
-
-#### Row
-
-A row is an object that has the following fields:
-
-| Field Name | Required | Type | Description |
-| --- | --- | --- | --- |
-| <column name> | Yes | string | The value for the column |
-| ... | ... | ... | ... |
-
-Example:
-```
-{
-    "first_name": "John",
-    "last_name": "Smith"
-}
-```
-
 
 ## Functions (optional)
 

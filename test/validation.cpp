@@ -85,7 +85,7 @@ bool t04_bad_foreign_key_action() {
   }, __FUNCTION__);
 }
 
-bool t05_bad_row_column() {
+bool t05_unknown_table_field() {
   auto tables = read_json(R"([
     {
       "name": "account",
@@ -93,9 +93,7 @@ bool t05_bad_row_column() {
       "columns": [
         {"id": "ACCOUNT_ID", "name": "id", "type": "int unsigned"}
       ],
-      "rows": [
-        {"id`": "1"}
-      ]
+      "extra": true
     }
   ])");
   auto empty = read_json("[]");
@@ -136,7 +134,7 @@ bool t07_bad_permission_type() {
 
 int main() {
   if (t01_bad_db_name() && t02_bad_engine() && t03_bad_key_type() &&
-      t04_bad_foreign_key_action() && t05_bad_row_column() &&
+      t04_bad_foreign_key_action() && t05_unknown_table_field() &&
       t06_bad_user_subject() && t07_bad_permission_type() && true) {
     return 0;
   }
