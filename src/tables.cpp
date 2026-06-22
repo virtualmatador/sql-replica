@@ -243,6 +243,23 @@ set @_sql_tables = if(isnull(@old_table),
   )),
   @_sql_tables
 );
+set @_sql_columns = if(isnull(@old_table),
+  json_array_append(@_sql_columns, '$', json_object(
+      'table', ')" +
+            context_.bad_prefix + table["name"].get_string() +
+            R"(',
+      'name', ')" +
+            context_.bad_prefix +
+            R"(',
+      'comment', '',
+      'type', 'int unsigned',
+      'default', null,
+      'nullable', 'NO',
+      'auto', false,
+      'ordinal', 1
+  )),
+  @_sql_columns
+);
 )";
   }
 }
@@ -306,6 +323,118 @@ set @qry = if (isnull(@sub_query),
 )";
   sql_ += context_.exec;
   sql_ += R"(
+set @_sql_columns = (
+  select coalesce(json_arrayagg(json_object(
+      'table',
+          if(exists (
+              select 1
+              from )" + Objects::planned_tables_from_json() +
+          R"(
+              where `planned_tables`.`name` = `_sql_ordered_columns`.`table` and
+                  `planned_tables`.`name` not like ')" +
+          context_.bad_prefix + context_.drop_prefix +
+          R"(%' and `planned_tables`.`type` = 'BASE TABLE' and
+                  instr(@all_tables, concat('{', `planned_tables`.`comment`, '}')) = 0
+          ),
+              concat(')" +
+          context_.bad_prefix + context_.drop_prefix +
+          R"(', `table`),
+              `table`
+          ),
+      'name', `name`,
+      'comment', `comment`,
+      'type', `type`,
+      'default', `default_value`,
+      'nullable', `nullable`,
+      'auto', `auto`,
+      'ordinal', `ordinal`
+  )), json_array())
+  from (
+      select *
+      from )" +
+          Objects::planned_columns_from_json() +
+          R"(
+      order by `table`, `ordinal`, `name`
+  ) as `_sql_ordered_columns`
+);
+set @_sql_indexes = (
+  select coalesce(json_arrayagg(json_object(
+      'table',
+          if(exists (
+              select 1
+              from )" + Objects::planned_tables_from_json() +
+          R"(
+              where `planned_tables`.`name` = `_sql_ordered_indexes`.`table` and
+                  `planned_tables`.`name` not like ')" +
+          context_.bad_prefix + context_.drop_prefix +
+          R"(%' and `planned_tables`.`type` = 'BASE TABLE' and
+                  instr(@all_tables, concat('{', `planned_tables`.`comment`, '}')) = 0
+          ),
+              concat(')" +
+          context_.bad_prefix + context_.drop_prefix +
+          R"(', `table`),
+              `table`
+          ),
+      'name', `name`,
+      'key_def', `key_def`,
+      'foreign_key', `foreign_key`
+  )), json_array())
+  from (
+      select *
+      from )" +
+          Objects::planned_indexes_from_json() +
+          R"(
+      order by `table`, `name`
+  ) as `_sql_ordered_indexes`
+);
+set @_sql_foreign_keys = (
+  select coalesce(json_arrayagg(json_object(
+      'table',
+          if(exists (
+              select 1
+              from )" + Objects::planned_tables_from_json() +
+          R"(
+              where `planned_tables`.`name` = `_sql_ordered_foreign_keys`.`table` and
+                  `planned_tables`.`name` not like ')" +
+          context_.bad_prefix + context_.drop_prefix +
+          R"(%' and `planned_tables`.`type` = 'BASE TABLE' and
+                  instr(@all_tables, concat('{', `planned_tables`.`comment`, '}')) = 0
+          ),
+              concat(')" +
+          context_.bad_prefix + context_.drop_prefix +
+          R"(', `table`),
+              `table`
+          ),
+      'name', `name`,
+      'key_def', `key_def`,
+      'referenced_table',
+          if(exists (
+              select 1
+              from )" + Objects::planned_tables_from_json() +
+          R"(
+              where `planned_tables`.`name` = `_sql_ordered_foreign_keys`.`referenced_table` and
+                  `planned_tables`.`name` not like ')" +
+          context_.bad_prefix + context_.drop_prefix +
+          R"(%' and `planned_tables`.`type` = 'BASE TABLE' and
+                  instr(@all_tables, concat('{', `planned_tables`.`comment`, '}')) = 0
+          ),
+              concat(')" +
+          context_.bad_prefix + context_.drop_prefix +
+          R"(', `referenced_table`),
+              `referenced_table`
+          ),
+      'f_key_def', `f_key_def`,
+      'update', `update_rule`,
+      'delete', `delete_rule`
+  )), json_array())
+  from (
+      select *
+      from )" +
+          Objects::planned_foreign_keys_from_json() +
+          R"(
+      order by `table`, `name`
+  ) as `_sql_ordered_foreign_keys`
+);
 set @_sql_tables = (
   select coalesce(json_arrayagg(json_object(
       'name', `name`,
@@ -695,7 +824,25 @@ set @_sql_indexes = (
   select coalesce(json_arrayagg(json_object(
       'table', `table`,
       'name', `name`,
-      'key_def', `key_def`,
+      'key_def',
+          if(`table` = ')" +
+            table["name"].get_string() +
+            R"(' and exists (
+              select 1
+              from )" + Objects::planned_columns_from_json() +
+            R"(
+              where `table` = ')" +
+            table["name"].get_string() +
+            R"(' and
+                  `name` not like ')" +
+            context_.bad_prefix + context_.drop_prefix +
+            R"(%' and
+                  instr(@all_columns, concat('{', `comment`, '}')) = 0 and
+                  instr(`_sql_ordered_indexes`.`key_def`, concat('`', `name`, '`')) > 0
+          ),
+              concat('__stale__', `key_def`),
+              `key_def`
+          ),
       'foreign_key', `foreign_key`
   )), json_array())
   from (
@@ -703,37 +850,63 @@ set @_sql_indexes = (
       from )" +
             Objects::planned_indexes_from_json() +
             R"(
-      where `table` != ')" +
-            table["name"].get_string() +
-            R"(' or `foreign_key` = true
       order by `table`, `name`
   ) as `_sql_ordered_indexes`
 );
-)";
-    if (auto keys = table.at("keys"); keys) {
-      for (const auto &key : keys->get_array()) {
-        std::string key_def;
-        for (const auto &clm : key["columns"].get_array()) {
-          if (!key_def.empty()) {
-            key_def += ", ";
-          }
-          key_def += '`' + clm.get_string() + '`';
-        }
-        sql_ += R"(
-set @_sql_indexes = json_array_append(@_sql_indexes, '$', json_object(
-  'table', ')" + table["name"].get_string() +
-                R"(',
-  'name', ')" + key["name"].get_string() +
-                R"(',
-  'key_def', ')" +
-                key_def +
-                R"(',
-  'foreign_key', false
-));
-)";
-      }
-    }
-    sql_ += R"(
+set @_sql_foreign_keys = (
+  select coalesce(json_arrayagg(json_object(
+      'table', `table`,
+      'name', `name`,
+      'key_def',
+          if(`table` = ')" +
+            table["name"].get_string() +
+            R"(' and exists (
+              select 1
+              from )" + Objects::planned_columns_from_json() +
+            R"(
+              where `table` = ')" +
+            table["name"].get_string() +
+            R"(' and
+                  `name` not like ')" +
+            context_.bad_prefix + context_.drop_prefix +
+            R"(%' and
+                  instr(@all_columns, concat('{', `comment`, '}')) = 0 and
+                  instr(`_sql_ordered_foreign_keys`.`key_def`, concat('`', `name`, '`')) > 0
+          ),
+              concat('__stale__', `key_def`),
+              `key_def`
+          ),
+      'referenced_table', `referenced_table`,
+      'f_key_def',
+          if(`referenced_table` = ')" +
+            table["name"].get_string() +
+            R"(' and exists (
+              select 1
+              from )" + Objects::planned_columns_from_json() +
+            R"(
+              where `table` = ')" +
+            table["name"].get_string() +
+            R"(' and
+                  `name` not like ')" +
+            context_.bad_prefix + context_.drop_prefix +
+            R"(%' and
+                  instr(@all_columns, concat('{', `comment`, '}')) = 0 and
+                  instr(`_sql_ordered_foreign_keys`.`f_key_def`, concat('`', `name`, '`')) > 0
+          ),
+              concat('__stale__', `f_key_def`),
+              `f_key_def`
+          ),
+      'update', `update_rule`,
+      'delete', `delete_rule`
+  )), json_array())
+  from (
+      select *
+      from )" +
+            Objects::planned_foreign_keys_from_json() +
+            R"(
+      order by `table`, `name`
+  ) as `_sql_ordered_foreign_keys`
+);
 set @_sql_columns = (
   select coalesce(json_arrayagg(json_object(
       'table', `table`,
@@ -1072,6 +1245,25 @@ set @_sql_foreign_keys = if(@old_ok or isnull(@old_constraint),
       ) as `_sql_ordered_foreign_keys`
   )
 );
+set @_sql_indexes = if(@old_ok or isnull(@old_constraint),
+  @_sql_indexes,
+  (
+      select coalesce(json_arrayagg(json_object(
+          'table', `table`,
+          'name', `name`,
+          'key_def', `key_def`,
+          'foreign_key',
+              if(`table` = @old_table and `name` = @old_constraint, false, `foreign_key`)
+      )), json_array())
+      from (
+          select *
+          from )" +
+                Objects::planned_indexes_from_json() +
+                R"(
+          order by `table`, `name`
+      ) as `_sql_ordered_indexes`
+  )
+);
 )";
       }
     }
@@ -1120,6 +1312,29 @@ set @_sql_foreign_keys = (
             R"(' and instr(@all_foreign_keys, concat('{', `name`, '}')) = 0)
       order by `table`, `name`
   ) as `_sql_ordered_foreign_keys`
+);
+set @_sql_indexes = if(isnull(@sub_query),
+  @_sql_indexes,
+  (
+      select coalesce(json_arrayagg(json_object(
+          'table', `table`,
+          'name', `name`,
+          'key_def', `key_def`,
+          'foreign_key',
+              if(`table` = ')" +
+            table["name"].get_string() +
+            R"(' and instr(@all_foreign_keys, concat('{', `name`, '}')) = 0,
+                  false,
+                  `foreign_key`)
+      )), json_array())
+      from (
+          select *
+          from )" +
+            Objects::planned_indexes_from_json() +
+            R"(
+          order by `table`, `name`
+      ) as `_sql_ordered_indexes`
+  )
 );
 )";
   }
@@ -1225,13 +1440,23 @@ where
 set @old_ok = @old_key_def = ')" +
                 key_def + R"(';
 set @drop_query = if (@old_ok or isnull(@old_index), '',
-  'DROP INDEX `)" +
-                key["name"].get_string() + R"(`, ');
+  ')" +
+                (Objects::equals_ignore_case(key["type"].get_string(),
+                                             "primary key")
+                     ? std::string{"DROP PRIMARY KEY, "}
+                     : "DROP INDEX `" + key["name"].get_string() + "`, ") +
+                R"(');
 set @sub_query = concat(@sub_query, @drop_query);
 set @sub_query = if (@drop_query != '' or isnull(@old_index),
-  concat(@sub_query, 'ADD )" +
-                key["type"].get_string() + R"( `)" + key["name"].get_string() +
-                R"(` ()" + key_def + R"(), ')
+  concat(@sub_query, ')" +
+                (Objects::equals_ignore_case(key["type"].get_string(),
+                                             "primary key")
+                     ? "ADD " + key["type"].get_string() + " (" + key_def +
+                           "), "
+                     : "ADD " + key["type"].get_string() + " `" +
+                           key["name"].get_string() + "` (" + key_def +
+                           "), ") +
+                R"(')
 , @sub_query);
 )";
       }
@@ -1306,6 +1531,49 @@ set @_sql_columns = (
   ) as `_sql_ordered_columns`
 );
 )";
+    sql_ += R"(
+set @_sql_indexes = (
+  select coalesce(json_arrayagg(json_object(
+      'table', `table`,
+      'name', `name`,
+      'key_def', `key_def`,
+      'foreign_key', `foreign_key`
+  )), json_array())
+  from (
+      select *
+      from )" +
+            Objects::planned_indexes_from_json() +
+            R"(
+      where `table` != ')" +
+            table["name"].get_string() +
+            R"(' or `foreign_key` = true
+      order by `table`, `name`
+  ) as `_sql_ordered_indexes`
+);
+)";
+    if (auto keys = table.at("keys"); keys) {
+      for (const auto &key : keys->get_array()) {
+        std::string key_def;
+        for (const auto &clm : key["columns"].get_array()) {
+          if (!key_def.empty()) {
+            key_def += ", ";
+          }
+          key_def += '`' + clm.get_string() + '`';
+        }
+        sql_ += R"(
+set @_sql_indexes = json_array_append(@_sql_indexes, '$', json_object(
+  'table', ')" + table["name"].get_string() +
+                R"(',
+  'name', ')" + key["name"].get_string() +
+                R"(',
+  'key_def', ')" +
+                key_def +
+                R"(',
+  'foreign_key', false
+));
+)";
+      }
+    }
     for (const auto &column : table["columns"].get_array()) {
       auto ordinal_position{std::to_string(
           1 + std::distance(&table["columns"].get_array().front(), &column))};
@@ -1332,7 +1600,11 @@ set @_sql_columns = if(@column_object is null,
       concat(@column_object, '.type'), ')" +
               column["type"].get_string() + R"(',
       concat(@column_object, '.default'), )" +
-              (default_value ? default_value->get_string() : "null") + R"(,
+              (default_value
+                   ? default_value->get_string()
+                   : "json_extract(@_sql_columns, concat(@column_object, "
+                     "'.default'))") +
+              R"(,
       concat(@column_object, '.nullable'), ')" +
               (is_null ? "YES" : "NO") + R"(',
       concat(@column_object, '.auto'), )" +
@@ -1386,6 +1658,20 @@ set @qry = if (@sub_query != '',
 );
 )";
     sql_ += context_.exec;
+    for (const auto &column : table["columns"].get_array()) {
+      if (!column.at("default")) {
+        sql_ += R"(
+set @column_path = json_unquote(json_search(
+  @_sql_columns, 'one', ')" +
+                column["id"].get_string() + R"(', null, '$[*].comment'));
+set @column_object = if(@column_path is null, null, replace(@column_path, '.comment', ''));
+set @_sql_columns = if(@column_object is null,
+  @_sql_columns,
+  json_set(@_sql_columns, concat(@column_object, '.default'), null)
+);
+)";
+      }
+    }
   }
 }
 
