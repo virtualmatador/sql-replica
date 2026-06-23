@@ -1,0 +1,32 @@
+-- pass 1
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "item" exist.';
+SET @r = 'No extra view.';
+RENAME TABLE `demo`.`extra_product` to `demo`.`_sql__drop_extra_product`;
+RENAME TABLE `demo`.`product` to `demo`.`_sql_item`;
+RENAME TABLE `demo`.`_sql_item` to `demo`.`item`;
+SET @r = 'Engine of "item" is ok.';
+ALTER TABLE `demo`.`item` ADD `_sql_description` varchar(128) COMMENT 'PRODUCT_DESC';
+ALTER TABLE `demo`.`item` RENAME COLUMN `note` to `_sql__drop_note`, RENAME COLUMN `obsolete` to `_sql__drop_obsolete`;
+ALTER TABLE `demo`.`item` RENAME COLUMN `sku` to `_sql_code`;
+ALTER TABLE `demo`.`item` RENAME COLUMN `_sql_code` to `code`, RENAME COLUMN `_sql_description` to `description`;
+SET @r = 'No extra foreign keys in "item".';
+ALTER TABLE `demo`.`item` MODIFY `code` varchar(48) not null COMMENT 'PRODUCT_SKU' AFTER `id`, MODIFY `price` int DEFAULT 7 not null COMMENT 'PRODUCT_PRICE' AFTER `code`, MODIFY `description` varchar(128) null COMMENT 'PRODUCT_DESC' AFTER `price`, ADD index `idx_item_code` (`code`), DROP INDEX `idx_product_sku`, DROP COLUMN `_sql__drop_note`, DROP COLUMN `_sql__drop_obsolete`;
+SET @r = 'Table "item" is ok.';
+DROP TABLE `demo`.`_sql__drop_extra_product`;
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "item" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "item" is ok.';
+SET @r = 'No new column in "item" is needed.';
+SET @r = 'No extra column in "item".';
+SET @r = 'No column in "item" needs prefix.';
+SET @r = 'No column in "item" needs rename.';
+SET @r = 'No extra foreign keys in "item".';
+SET @r = 'Table "item" is ok.';
+SET @r = 'Table "item" is ok.';
+SET @r = 'No extra table.';

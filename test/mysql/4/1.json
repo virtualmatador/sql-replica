@@ -1,27 +1,9 @@
 {
   "name": "demo",
   "tables": null,
-  "functions": [
-    {
-      "name": "double_value",
-      "returns": "int",
-      "characteristics": ["DETERMINISTIC", "NO SQL", "SQL SECURITY INVOKER"],
-      "params": [
-        {"name": "input_value", "type": "int"}
-      ],
-      "body": "RETURN input_value * 2;"
-    }
-  ],
-  "procedures": [
-    {
-      "name": "set_value",
-      "characteristics": ["MODIFIES SQL DATA", "SQL SECURITY INVOKER"],
-      "params": [
-        {"mode": "IN", "name": "input_value", "type": "int"},
-        {"mode": "OUT", "name": "output_value", "type": "int"}
-      ],
-      "body": "SET output_value = input_value;"
-    }
+  "routines": [
+    "CREATE FUNCTION `demo`.`double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 2; END",
+    "CREATE PROCEDURE `demo`.`set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA SQL SECURITY INVOKER BEGIN SET output_value = input_value; END"
   ],
   "users": null
 }

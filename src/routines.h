@@ -2,6 +2,7 @@
 #define ROUTINES_H
 
 #include <string>
+#include <utility>
 
 #include <json.hpp>
 
@@ -9,29 +10,22 @@
 
 class Routines {
 public:
-  static void validate(const jsonio::json &procedures);
+  static void validate(const jsonio::json &routines);
   static std::string snapshot_schema_state(const std::string &db_name);
-  static std::string generate(const jsonio::json &procedures,
+  static std::string generate(const jsonio::json &routines,
                               const Context &context);
 
-  static const jsonio::json_arr &
-  routine_characteristic_values(const jsonio::json &routine);
-  static std::string routine_characteristics(const jsonio::json &routine);
-  static std::string routine_data_access(const jsonio::json &routine);
-  static std::string routine_deterministic(const jsonio::json &routine);
-  static std::string routine_security(const jsonio::json &routine);
-  static void validate_routine_characteristics(const jsonio::json &routine);
-
 private:
-  Routines(const jsonio::json &procedures, const Context &context);
+  Routines(const jsonio::json &routines, const Context &context);
 
   std::string generate();
-  void remove_extra_procedures();
-  void apply_procedures();
+  void remove_extra_routines();
+  void apply_routines();
 
-  static std::string procedure_params(const jsonio::json &procedure);
+  static std::pair<std::string, std::string>
+  routine_type_and_name(const std::string &routine);
 
-  const jsonio::json &procedures_;
+  const jsonio::json &routines_;
   const Context &context_;
   std::string sql_;
 };

@@ -118,11 +118,6 @@ std::string Objects::planned_routines_from_json(const std::string &json) {
          R"(, '$[*]' columns (
         `name` varchar(255) path '$.name',
         `type` varchar(32) path '$.type',
-        `body` text path '$.body',
-        `returns` text path '$.returns',
-        `params` text path '$.params',
-        `data_access` varchar(64) path '$.data_access',
-        `deterministic` varchar(8) path '$.deterministic',
-        `security` varchar(16) path '$.security'
+        `comment` text path '$.comment'
     )) as `planned_routines`)";
 }

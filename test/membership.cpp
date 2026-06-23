@@ -40,7 +40,7 @@ bool t01() {
     }
   ])");
   const auto sql =
-      Schema(schema(tables, empty, empty, users), false, true).replicate_sql();
+      Schema(schema(tables, empty, users), false, true).replicate_sql();
   return expect_contains(sql,
                          "set @all_foreign_keys = concat(@all_foreign_keys, "
                          "'{fk_account}');",
@@ -59,8 +59,10 @@ bool t01() {
                          "instr(@all_users, concat('{', `user`, '}')) = 0",
                          __FUNCTION__) &&
          expect_contains(sql,
-                         "REVOKE IF EXISTS SELECT, INSERT, UPDATE, DELETE, "
-                         "EXECUTE ON `demo`.* FROM ",
+                         "REVOKE ', `operations`, ' ON `demo`.`",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "REVOKE ', `operations`, ' ON ', `type`, ' `demo`.`",
                          __FUNCTION__) &&
          expect_contains(sql, "from json_table(@_sql_foreign_keys",
                          __FUNCTION__) &&

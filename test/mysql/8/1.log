@@ -1,0 +1,32 @@
+-- pass 1
+CREATE DATABASE `demo`;
+CREATE TABLE `demo`.`_sql_ticket` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'TICKET_TABLE';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'All tables have prefix.';
+RENAME TABLE `demo`.`_sql_ticket` to `demo`.`ticket`;
+SET @r = 'Engine of "ticket" is ok.';
+ALTER TABLE `demo`.`ticket` ADD `_sql_id` int unsigned COMMENT 'TICKET_ID', ADD `_sql_title` varchar(64) DEFAULT 'untitled' COMMENT 'TICKET_TITLE', ADD `_sql_status` varchar(16) DEFAULT 'open' COMMENT 'TICKET_STATUS';
+ALTER TABLE `demo`.`ticket` RENAME COLUMN `_sql_` to `_sql__drop__sql_`;
+SET @r = 'All columns in "ticket" have prefix.';
+ALTER TABLE `demo`.`ticket` RENAME COLUMN `_sql_id` to `id`, RENAME COLUMN `_sql_title` to `title`, RENAME COLUMN `_sql_status` to `status`;
+SET @r = 'No extra foreign keys in "ticket".';
+ALTER TABLE `demo`.`ticket` MODIFY `id` int unsigned not null auto_increment COMMENT 'TICKET_ID' FIRST, MODIFY `title` varchar(64) DEFAULT 'untitled' not null COMMENT 'TICKET_TITLE' AFTER `id`, MODIFY `status` varchar(16) DEFAULT 'open' not null COMMENT 'TICKET_STATUS' AFTER `title`, ADD primary key (`id`), DROP COLUMN `_sql__drop__sql_`;
+SET @r = 'Table "ticket" is ok.';
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "ticket" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "ticket" is ok.';
+SET @r = 'No new column in "ticket" is needed.';
+SET @r = 'No extra column in "ticket".';
+SET @r = 'No column in "ticket" needs prefix.';
+SET @r = 'No column in "ticket" needs rename.';
+SET @r = 'No extra foreign keys in "ticket".';
+SET @r = 'Table "ticket" is ok.';
+SET @r = 'Table "ticket" is ok.';
+SET @r = 'No extra table.';

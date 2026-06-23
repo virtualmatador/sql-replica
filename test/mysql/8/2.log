@@ -1,0 +1,32 @@
+-- pass 1
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "ticket" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "ticket" is ok.';
+SET @r = 'No new column in "ticket" is needed.';
+SET @r = 'No extra column in "ticket".';
+SET @r = 'No column in "ticket" needs prefix.';
+SET @r = 'No column in "ticket" needs rename.';
+SET @r = 'No extra foreign keys in "ticket".';
+ALTER TABLE `demo`.`ticket` MODIFY `title` varchar(64) DEFAULT 'named' not null COMMENT 'TICKET_TITLE' AFTER `id`;
+ALTER TABLE `demo`.`ticket` ALTER COLUMN `status` DROP DEFAULT;
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "ticket" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "ticket" is ok.';
+SET @r = 'No new column in "ticket" is needed.';
+SET @r = 'No extra column in "ticket".';
+SET @r = 'No column in "ticket" needs prefix.';
+SET @r = 'No column in "ticket" needs rename.';
+SET @r = 'No extra foreign keys in "ticket".';
+SET @r = 'Table "ticket" is ok.';
+SET @r = 'Table "ticket" is ok.';
+SET @r = 'No extra table.';

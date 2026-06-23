@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -151,12 +152,17 @@ public:
     stop();
   }
 
-  void exec(const std::string &sql) const {
-    const auto result = run_command(mysql_args(), sql);
+  std::string exec(const std::string &sql) const {
+    auto args = mysql_args();
+    args.push_back("--batch");
+    args.push_back("--raw");
+    args.push_back("--skip-column-names");
+    const auto result = run_command(args, sql);
     if (result.exit_code != 0) {
       throw std::runtime_error("mysql failed:\n" + result.output +
                                "\ncontainer log:\n" + logs());
     }
+    return result.output;
   }
 
   std::string check(const std::string &sql) const {
@@ -269,20 +275,74 @@ jsonio::json read_json_file(const std::filesystem::path &path) {
   return json;
 }
 
-void apply_schema(MysqlContainer &mysql, const jsonio::json &schema,
-                  bool report_mode) {
-  if (!report_mode) {
-    const auto generated = Schema(schema, false, false).replicate_sql();
-    for (int i = 0; i < 2; ++i) {
-      mysql.exec(generated);
+std::string normalize_log(const std::string &text) {
+  std::string result = text;
+  std::stringstream stream{text};
+  std::string line;
+  while (std::getline(stream, line)) {
+    if (line.rfind("DELIMITER d", 0) != 0 || line.size() != 24) {
+      continue;
     }
-    return;
+    const auto delimiter = line.substr(10);
+    if (!std::regex_match(delimiter, std::regex{"d[0-9a-f]{13}"})) {
+      continue;
+    }
+    std::size_t pos = 0;
+    while ((pos = result.find(delimiter, pos)) != std::string::npos) {
+      result.replace(pos, delimiter.size(), "<delimiter>");
+      pos += std::string{"<delimiter>"}.size();
+    }
+  }
+  return result;
+}
+
+void write_text(const std::filesystem::path &path, const std::string &text) {
+  std::ofstream stream{path};
+  if (!stream) {
+    throw std::runtime_error("could not write " + path.string());
+  }
+  stream << text;
+}
+
+bool compare_log(const std::filesystem::path &path, const std::string &actual) {
+  const auto normalized = normalize_log(actual);
+  if (std::getenv("SQLR_UPDATE_MYSQL_LOGS") != nullptr) {
+    write_text(path, normalized);
+    return true;
+  }
+  if (!std::filesystem::exists(path)) {
+    std::cerr << "mysql: missing log " << path.string() << std::endl;
+    return false;
+  }
+  const auto expected = read_text(path);
+  if (expected == normalized) {
+    return true;
+  }
+  std::cerr << "mysql: log mismatch for " << path.string() << std::endl;
+  std::cerr << "Expected:\n" << expected << std::endl;
+  std::cerr << "Actual:\n" << normalized << std::endl;
+  return false;
+}
+
+std::vector<std::string> apply_schema(MysqlContainer &mysql,
+                                      const jsonio::json &schema,
+                                      bool report_mode) {
+  std::vector<std::string> logs;
+  if (!report_mode) {
+    const auto generated = Schema(schema, true, false).replicate_sql();
+    for (int i = 0; i < 2; ++i) {
+      logs.push_back(mysql.exec(generated));
+    }
+    return logs;
   }
 
   const auto generated = Schema(schema, true, true).replicate_sql();
   for (int i = 0; i < 2; ++i) {
-    mysql.exec(mysql.report(generated));
+    auto report = mysql.report(generated);
+    logs.push_back(report);
+    mysql.exec(report);
   }
+  return logs;
 }
 
 bool run_mysql_fixture(const std::filesystem::path &folder) {
@@ -316,7 +376,23 @@ bool run_mysql_fixture(const std::filesystem::path &folder) {
     }
     found_step = true;
 
-    apply_schema(mysql, read_json_file(json_path), report_mode);
+    const auto logs = apply_schema(mysql, read_json_file(json_path), report_mode);
+    if (report_mode) {
+      if (logs.size() != 2 ||
+          !compare_log(base.string() + ".log", logs[0]) ||
+          !compare_log(base.string() + ".2.log", logs[1])) {
+        return false;
+      }
+    } else {
+      std::string combined_log;
+      for (std::size_t i = 0; i < logs.size(); ++i) {
+        combined_log += "-- pass " + std::to_string(i + 1) + "\n";
+        combined_log += logs[i];
+      }
+      if (!compare_log(base.string() + ".log", combined_log)) {
+        return false;
+      }
+    }
 
     const auto result = mysql.check(read_text(checker_path));
     if (result != "ok") {

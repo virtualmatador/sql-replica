@@ -71,7 +71,15 @@ set @all_users = concat(@all_users, '{)" +
   }
   sql_ += R"(
 set @sub_query = null;
-select group_concat(distinct concat('''', `user`, '''') separator ', ')
+select group_concat(
+  if(`type` = 'TABLE',
+    concat('REVOKE ', `operations`, ' ON `)" +
+          context_.db_name + R"(`.`', `subject`, '` FROM ''', `user`, ''';'),
+    concat('REVOKE ', `operations`, ' ON ', `type`, ' `)" +
+          context_.db_name + R"(`.`', `subject`, '` FROM ''', `user`, ''';')
+  )
+  separator ' '
+)
 into @sub_query
 from )" + Objects::planned_permissions_from_json() +
           R"(
@@ -79,8 +87,7 @@ where instr(@all_users, concat('{', `user`, '}')) = 0;
 set @qry = if (isnull(@sub_query),
   'SET @r = \'No unlisted user permissions.\';'
 ,
-  concat('REVOKE IF EXISTS SELECT, INSERT, UPDATE, DELETE, EXECUTE ON `)" +
-          context_.db_name + R"(`.* FROM ', @sub_query, ';')
+  @sub_query
 );
 )";
   sql_ += context_.exec;
@@ -145,10 +152,14 @@ set @_sql_users = if(isnull(@old_user),
     }
     sql_ += R"(
 set @sub_query = null;
-select group_concat(`grant_name` separator ', ')
+select group_concat(`revoke_statement` separator ' ')
 into @sub_query
 from (
-  select concat('`', `subject`, '`') as `grant_name`
+  select concat(
+      'REVOKE ', `operations`, ' ON `)" +
+            context_.db_name + R"(`.`', `subject`, '` FROM \')" +
+            user["name"].get_string() + R"(\';'
+  ) as `revoke_statement`
   from )" + Objects::planned_permissions_from_json() +
             R"(
   where
@@ -157,7 +168,11 @@ from (
       `type` = 'TABLE' and
       instr(@all_grants, concat('{TABLE:', `subject`, '}')) = 0
   union all
-  select concat(`type`, ' `', `subject`, '`') as `grant_name`
+  select concat(
+      'REVOKE ', `operations`, ' ON ', `type`, ' `)" +
+            context_.db_name + R"(`.`', `subject`, '` FROM \')" +
+            user["name"].get_string() + R"(\';'
+  ) as `revoke_statement`
   from )" + Objects::planned_permissions_from_json() +
             R"(
   where
@@ -171,9 +186,7 @@ set @qry = if (isnull(@sub_query),
             user["name"].get_string() +
             R"(".\';'
 ,
-  'REVOKE IF EXISTS SELECT, INSERT, UPDATE, DELETE, EXECUTE ON `)" +
-            context_.db_name + R"(`.* FROM \')" + user["name"].get_string() +
-            R"(\';'
+  @sub_query
 );
 )";
     sql_ += context_.exec;
@@ -257,17 +270,42 @@ set @qry = if (@old_grant = ')" +
       }
       if (!revoke_operations.empty()) {
         sql_ += R"(
+set @revoke_operations = '';
+)";
+        auto &permissions = permission["operations"].get_array();
+        for (auto operation : permission_operations(type)) {
+          if (std::find_if(permissions.begin(), permissions.end(), [&](auto &s) {
+                return strcasecmp(s.get_string().c_str(), operation) == 0;
+              }) == permissions.end()) {
+            sql_ += R"(
+set @revoke_operations = if(find_in_set(')" +
+                    std::string{operation} +
+                    R"(', ifnull(@old_grant, '')) = 0,
+  @revoke_operations,
+  if(@revoke_operations = '', ')" +
+                    std::string{operation} + R"(', concat(@revoke_operations, ',)" +
+                    std::string{operation} + R"('))
+);
+)";
+          }
+        }
+        sql_ += R"(
 set @qry = if (@old_grant = ')" +
                 grant_operations + R"(',
   'SET @r = \'Revoke permissions on ")" +
                 permission["subject"].get_string() + R"(" for ")" +
                 user["name"].get_string() + R"(" is ok.\';'
 ,
-  'REVOKE IF EXISTS )" +
-                revoke_operations + R"( ON )" + permission_grant_type(type) +
-                R"(`)" + context_.db_name + R"(`.`)" +
-                permission["subject"].get_string() + R"(` FROM \')" +
-                user["name"].get_string() + R"(\';'
+  if(@revoke_operations = '',
+    'SET @r = \'No revoke permissions on )" +
+                permission["subject"].get_string() + R"( for )" +
+                user["name"].get_string() + R"( needed.\';'
+  ,
+    concat('REVOKE ', @revoke_operations, ' ON )" +
+                permission_grant_type(type) + R"(`)" + context_.db_name +
+                R"(`.`)" + permission["subject"].get_string() +
+                R"(` FROM \')" + user["name"].get_string() + R"(\';')
+  )
 );
 )";
         sql_ += context_.exec;

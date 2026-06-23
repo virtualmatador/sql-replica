@@ -7,6 +7,7 @@ select if(
     from information_schema.routines
     where routine_schema = 'demo'
       and routine_name in ('double_value', 'set_value')
+      and routine_comment regexp 'SQLR_HASH:[0-9a-f]{64}$'
   ) = 2,
   'ok',
   'bad initial routines'

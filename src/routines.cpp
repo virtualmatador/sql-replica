@@ -2,138 +2,150 @@
 
 #include "objects.h"
 
-#include <string.h>
+#include <cctype>
 
-std::string Routines::procedure_params(const jsonio::json &procedure) {
-  std::string params;
-  for (const auto &param : procedure["params"].get_array()) {
-    if (!params.empty()) {
-      params += ", ";
-    }
-    params += param["mode"].get_string() + " `" + param["name"].get_string() +
-              "` " + param["type"].get_string();
+namespace {
+bool is_word_char(const char c) {
+  return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+}
+
+std::string upper_string(std::string value) {
+  for (auto &c : value) {
+    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
   }
-  return params;
+  return value;
 }
 
-const jsonio::json_arr &
-Routines::routine_characteristic_values(const jsonio::json &routine) {
-  return routine["characteristics"].get_array();
-}
-
-std::string Routines::routine_characteristics(const jsonio::json &routine) {
-  std::string result;
-  for (const auto &value : routine_characteristic_values(routine)) {
-    if (!result.empty()) {
-      result += " ";
+std::size_t find_keyword(const std::string &text, const char *keyword) {
+  const auto upper = upper_string(text);
+  const auto needle = upper_string(keyword);
+  auto pos = upper.find(needle);
+  while (pos != std::string::npos) {
+    const bool left_ok = pos == 0 || !is_word_char(upper[pos - 1]);
+    const auto end = pos + needle.size();
+    const bool right_ok = end == upper.size() || !is_word_char(upper[end]);
+    if (left_ok && right_ok) {
+      return pos;
     }
-    result += value.get_string();
+    pos = upper.find(needle, pos + 1);
+  }
+  return std::string::npos;
+}
+
+void skip_spaces(const std::string &text, std::size_t &pos) {
+  while (pos < text.size() &&
+         std::isspace(static_cast<unsigned char>(text[pos]))) {
+    ++pos;
+  }
+}
+
+std::string read_identifier(const std::string &text, std::size_t &pos) {
+  skip_spaces(text, pos);
+  if (pos >= text.size()) {
+    return "";
+  }
+  if (text[pos] == '`') {
+    ++pos;
+    std::string result;
+    while (pos < text.size()) {
+      if (text[pos] == '`') {
+        ++pos;
+        return result;
+      }
+      result += text[pos++];
+    }
+    return "";
+  }
+
+  std::string result;
+  while (pos < text.size()) {
+    const auto c = text[pos];
+    if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '$') {
+      break;
+    }
+    result += c;
+    ++pos;
   }
   return result;
 }
+} // namespace
 
-std::string Routines::routine_data_access(const jsonio::json &routine) {
-  for (const auto &value : routine_characteristic_values(routine)) {
-    const auto &text = value.get_string();
-    if (strcasecmp(text.c_str(), "CONTAINS SQL") == 0 ||
-        strcasecmp(text.c_str(), "NO SQL") == 0 ||
-        strcasecmp(text.c_str(), "READS SQL DATA") == 0 ||
-        strcasecmp(text.c_str(), "MODIFIES SQL DATA") == 0) {
-      return text;
+void Routines::validate(const jsonio::json &routines) {
+  for (const auto &routine : routines.get_array()) {
+    const auto &[type, name] = routine_type_and_name(routine.get_string());
+    if (type.empty() || name.empty()) {
+      throw std::runtime_error("Publish MySQL: Bad Routine");
     }
-  }
-  return "";
-}
-
-std::string Routines::routine_deterministic(const jsonio::json &routine) {
-  for (const auto &value : routine_characteristic_values(routine)) {
-    const auto &text = value.get_string();
-    if (strcasecmp(text.c_str(), "DETERMINISTIC") == 0) {
-      return "YES";
-    }
-    if (strcasecmp(text.c_str(), "NOT DETERMINISTIC") == 0) {
-      return "NO";
-    }
-  }
-  return "";
-}
-
-std::string Routines::routine_security(const jsonio::json &routine) {
-  for (const auto &value : routine_characteristic_values(routine)) {
-    const auto &text = value.get_string();
-    if (strncasecmp(text.c_str(), "SQL SECURITY ", 13) == 0) {
-      return text.substr(13);
-    }
-  }
-  return "";
-}
-
-void Routines::validate_routine_characteristics(const jsonio::json &routine) {
-  for (const auto &value : routine_characteristic_values(routine)) {
-    Objects::sanitize(value.get_string(), "\\'`");
+    Objects::sanitize(name, "\\'`");
   }
 }
 
-void Routines::validate(const jsonio::json &procedures) {
-  for (const auto &procedure : procedures.get_array()) {
-    Objects::validate_fields(
-        procedure, {"name", "characteristics", "params", "body"}, "Procedure");
-    Objects::sanitize(procedure["name"].get_string(), "\\'`");
-    validate_routine_characteristics(procedure);
-    for (const auto &param : procedure["params"].get_array()) {
-      Objects::validate_fields(param, {"mode", "name", "type"},
-                               "Procedure Param");
-      if (const auto &mode = param["mode"].get_string();
-          strcasecmp(mode.c_str(), "IN") != 0 &&
-          strcasecmp(mode.c_str(), "OUT") != 0 &&
-          strcasecmp(mode.c_str(), "INOUT") != 0) {
-        throw std::runtime_error("Publish MySQL: Bad Procedure Param Mode");
-      }
-      Objects::sanitize(param["name"].get_string(), "\\'`");
-      Objects::sanitize(param["type"].get_string(), "\\'`");
-    }
-  }
-}
-
-std::string Routines::generate(const jsonio::json &procedures,
+std::string Routines::generate(const jsonio::json &routines,
                                const Context &context) {
-  return Routines{procedures, context}.generate();
+  return Routines{routines, context}.generate();
 }
 
-Routines::Routines(const jsonio::json &procedures, const Context &context)
-    : procedures_(procedures), context_(context) {}
+Routines::Routines(const jsonio::json &routines, const Context &context)
+    : routines_(routines), context_(context) {}
 
 std::string Routines::generate() {
-  remove_extra_procedures();
-  apply_procedures();
+  remove_extra_routines();
+  apply_routines();
   return sql_;
 }
 
-void Routines::remove_extra_procedures() {
-  // Remove extra procedures
+std::pair<std::string, std::string>
+Routines::routine_type_and_name(const std::string &routine) {
+  auto type = std::string{"PROCEDURE"};
+  auto pos = find_keyword(routine, "PROCEDURE");
+  auto function_pos = find_keyword(routine, "FUNCTION");
+  if (function_pos != std::string::npos &&
+      (pos == std::string::npos || function_pos < pos)) {
+    type = "FUNCTION";
+    pos = function_pos;
+  }
+  if (pos == std::string::npos) {
+    return {"", ""};
+  }
+
+  pos += type.size();
+  auto first = read_identifier(routine, pos);
+  skip_spaces(routine, pos);
+  if (pos < routine.size() && routine[pos] == '.') {
+    ++pos;
+    const auto second = read_identifier(routine, pos);
+    if (!second.empty()) {
+      first = second;
+    }
+  }
+  return {type, first};
+}
+
+void Routines::remove_extra_routines() {
   sql_ += R"(
-set @all_procedures = '';
+set @all_routines = '';
 )";
-  for (const auto &procedure : procedures_.get_array()) {
+  for (const auto &routine : routines_.get_array()) {
+    const auto &[type, name] = routine_type_and_name(routine.get_string());
     sql_ += R"(
-set @all_procedures = concat(@all_procedures, '{)" +
-            procedure["name"].get_string() + R"(}');
+set @all_routines = concat(@all_routines, '{)" +
+            type + ":" + name + R"(}');
 )";
   }
   sql_ += R"(
 set @sub_query = null;
-select group_concat(concat('`)" +
-          context_.db_name + R"(`.`', `name`, '`') SEPARATOR ', ')
+select group_concat(
+    concat('DROP ', `type`, ' `)" +
+          context_.db_name + R"(`.`', `name`, '`;') SEPARATOR ' ')
   into @sub_query
   from )" +
           Objects::planned_routines_from_json() +
           R"(
-  where `type` = 'PROCEDURE' and
-      instr(@all_procedures, concat('{', `name`, '}')) = 0;
+  where instr(@all_routines, concat('{', `type`, ':', `name`, '}')) = 0;
 set @qry = if (isnull(@sub_query),
-  'SET @r = \'No extra procedure.\';'
+  'SET @r = \'No extra routine.\';'
 ,
-  concat('DROP PROCEDURE ', @sub_query, ';')
+  @sub_query
 );
 )";
   sql_ += context_.exec;
@@ -142,112 +154,81 @@ set @_sql_routines = (
   select coalesce(json_arrayagg(json_object(
       'name', `name`,
       'type', `type`,
-      'body', `body`,
-      'returns', `returns`,
-      'params', `params`,
-      'data_access', `data_access`,
-      'deterministic', `deterministic`,
-      'security', `security`
+      'comment', `comment`
   )), json_array())
   from (
       select *
       from )" +
           Objects::planned_routines_from_json() +
           R"(
-      where not (`type` = 'PROCEDURE' and
-          instr(@all_procedures, concat('{', `name`, '}')) = 0)
+      where instr(@all_routines, concat('{', `type`, ':', `name`, '}')) != 0
       order by `type`, `name`
   ) as `_sql_ordered_routines`
 );
 )";
 }
 
-void Routines::apply_procedures() {
-  // Apply procedures
-  if (procedures_.get_array().size() != 0) {
+void Routines::apply_routines() {
+  if (routines_.get_array().size() != 0) {
     sql_ += R"(
-set @procedure_delimiter = concat('d', left(replace(uuid(), '-', ''), 13));
+set @routine_delimiter = concat('d', left(replace(uuid(), '-', ''), 13));
 )";
   }
-  for (const auto &procedure : procedures_.get_array()) {
-    const auto characteristics = Routines::routine_characteristics(procedure);
-    const auto data_access = Routines::routine_data_access(procedure);
-    const auto deterministic = Routines::routine_deterministic(procedure);
-    const auto security = Routines::routine_security(procedure);
+  for (const auto &routine : routines_.get_array()) {
+    const auto routine_sql = routine.get_string();
+    const auto &[type, name] = routine_type_and_name(routine_sql);
+    const auto escaped_routine = Objects::escape_sql_string(routine_sql);
     sql_ += R"(
-set @old_body = null;
-set @old_data_access = null;
-set @old_deterministic = null;
-set @old_security = null;
-set @old_params = null;
-select `body`, `data_access`, `deterministic`, `security`
-  into @old_body, @old_data_access, @old_deterministic, @old_security
+set @old_comment = null;
+set @routine_hash = sha2(')" +
+            escaped_routine + R"(', 256);
+select `comment`
+  into @old_comment
   from )" + Objects::planned_routines_from_json() +
             R"(
-  where `type` = 'PROCEDURE' and
+  where `type` = ')" +
+            type + R"(' and
       `name` = ')" +
-            procedure["name"].get_string() + R"(';
-select `params`
-  into @old_params
-  from )" + Objects::planned_routines_from_json() +
-            R"(
-  where `type` = 'PROCEDURE' and
-      `name` = ')" +
-            procedure["name"].get_string() + R"(';
-set @procedure_changed =
-  isnull(@old_body) or
-  @old_body != ')" +
-            Objects::escape_sql_string(procedure["body"].get_string()) +
-            R"(' or
-)" +
-            (data_access.empty() ? ""
-                                 : R"(    ifnull(@old_data_access, '') != ')" +
-                                       data_access + R"(' or
-)") +
-            (deterministic.empty()
-                 ? ""
-                 : R"(    ifnull(@old_deterministic, '') != ')" +
-                       deterministic +
-                       R"(' or
-)") +
-            (security.empty()
-                 ? ""
-                 : R"(    ifnull(@old_security, '') != ')" + security + R"(' or
-)") +
-            R"(
-  ifnull(@old_params, '') != ')" +
-            procedure_params(procedure) + R"(';
-set @qry = if (@procedure_changed,
-  'DROP PROCEDURE IF EXISTS `)" +
-            context_.db_name + R"(`.`)" + procedure["name"].get_string() +
-            R"(`;'
+            name + R"(';
+set @routine_changed =
+  isnull(@old_comment) or
+  if(
+      @old_comment regexp 'SQLR_HASH:[0-9a-fA-F]{64}$',
+      lower(right(@old_comment, 64)),
+      ''
+  ) != @routine_hash;
+set @qry = if (@routine_changed and not isnull(@old_comment),
+  'DROP )" +
+            type + R"( `)" +
+            context_.db_name + R"(`.`)" + name + R"(`;'
 ,
-  'SET @r = \'Procedure )" +
-            procedure["name"].get_string() + R"( is ok.\';'
+  if(isnull(@old_comment),
+    'SET @r = \'Routine )" +
+            name + R"( absence is ok.\';'
+  ,
+    'SET @r = \'Routine )" +
+            name + R"( is ok.\';'
+  )
 );
 )";
     sql_ += context_.exec;
     sql_ += R"(
-set @_sql_routines = if(@procedure_changed,
+set @_sql_routines = if(@routine_changed,
   (
       select coalesce(json_arrayagg(json_object(
           'name', `name`,
           'type', `type`,
-          'body', `body`,
-          'returns', `returns`,
-          'params', `params`,
-          'data_access', `data_access`,
-          'deterministic', `deterministic`,
-          'security', `security`
+          'comment', `comment`
       )), json_array())
       from (
           select *
           from )" +
             Objects::planned_routines_from_json() +
             R"(
-          where not (`type` = 'PROCEDURE' and
+          where not (`type` = ')" +
+            type + R"(' and
               `name` = ')" +
-            procedure["name"].get_string() +
+            name +
             R"(')
           order by `type`, `name`
       ) as `_sql_ordered_routines`
@@ -256,48 +237,64 @@ set @_sql_routines = if(@procedure_changed,
 );
 )";
     sql_ += R"(
-set @qry = if (@procedure_changed,
-  concat('DELIMITER ', @procedure_delimiter, '\n', 'CREATE PROCEDURE `)" +
-            context_.db_name + R"(`.`)" + procedure["name"].get_string() +
-            R"(`()" + procedure_params(procedure) + R"() )" +
-            (characteristics.empty() ? "" : characteristics + " ") +
-            R"(BEGIN )" +
-            Objects::escape_sql_string(procedure["body"].get_string()) +
-            R"( END ', @procedure_delimiter, '\n', 'DELIMITER ;')
+set @qry = if (@routine_changed,
+  concat('DELIMITER ', @routine_delimiter, '\n', ')" +
+            escaped_routine +
+            R"( ', @routine_delimiter, '\n', 'DELIMITER ;')
 ,
-  'SET @r = \'Procedure )" +
-            procedure["name"].get_string() + R"( is ok.\';'
+  'SET @r = \'Routine )" +
+            name + R"( is ok.\';'
 );
 )";
     sql_ += context_.exec;
     sql_ += R"(
-set @_sql_routines = if(@procedure_changed,
+set @routine_comment = null;
+select `ROUTINE_COMMENT`
+  into @routine_comment
+  from `INFORMATION_SCHEMA`.`ROUTINES`
+  where `ROUTINE_SCHEMA` = ')" +
+            context_.db_name + R"(' and
+      `ROUTINE_TYPE` = ')" +
+            type + R"(' and
+      `ROUTINE_NAME` = ')" +
+            name + R"(';
+set @routine_comment = concat(
+  regexp_replace(
+      ifnull(@routine_comment, ''),
+      '\n?SQLR_HASH:[0-9a-fA-F]{64}$',
+      ''
+  ),
+  '\nSQLR_HASH:',
+  @routine_hash
+);
+set @qry = if (@routine_changed,
+  concat('ALTER )" +
+            type + R"( `)" +
+            context_.db_name + R"(`.`)" + name +
+            R"(` COMMENT ', quote(@routine_comment), ';')
+,
+  'SET @r = \'Routine comment )" +
+            name + R"( is ok.\';'
+);
+)";
+    sql_ += context_.exec;
+    sql_ += R"(
+set @_sql_routines = if(@routine_changed,
   json_array_append(@_sql_routines, '$', json_object(
       'name', ')" +
-            procedure["name"].get_string() +
+            name +
             R"(',
-      'type', 'PROCEDURE',
-      'body', ')" +
-            Objects::escape_sql_string(procedure["body"].get_string()) +
+      'type', ')" +
+            type +
             R"(',
-      'returns', '',
-      'params', ')" +
-            procedure_params(procedure) +
-            R"(',
-      'data_access', ')" +
-            data_access +
-            R"(',
-      'deterministic', ')" +
-            deterministic +
-            R"(',
-      'security', ')" +
-            security + R"('
+      'comment', @routine_comment
   )),
   @_sql_routines
 );
 )";
   }
 }
+
 std::string Routines::snapshot_schema_state(const std::string &db_name) {
   std::string sql;
   sql += R"(
@@ -305,53 +302,14 @@ set @_sql_routines = if(isnull(@old_db), json_array(), (
 select coalesce(json_arrayagg(json_object(
     'name', `name`,
     'type', `type`,
-    'body', `body`,
-    'returns', `returns`,
-    'params', `params`,
-    'data_access', `data_access`,
-    'deterministic', `deterministic`,
-    'security', `security`
+    'comment', `comment`
 )), json_array())
 from (
     select
         `r`.`ROUTINE_NAME` as `name`,
         `r`.`ROUTINE_TYPE` as `type`,
-        if(
-            upper(left(trim(`r`.`ROUTINE_DEFINITION`), 5)) = 'BEGIN' and
-                upper(right(trim(`r`.`ROUTINE_DEFINITION`), 3)) = 'END',
-            trim(substr(trim(`r`.`ROUTINE_DEFINITION`), 6,
-                length(trim(`r`.`ROUTINE_DEFINITION`)) - 8)),
-            trim(`r`.`ROUTINE_DEFINITION`)
-        ) as `body`,
-        if(`r`.`ROUTINE_TYPE` = 'FUNCTION', `r`.`DTD_IDENTIFIER`, '') as `returns`,
-        coalesce(`p`.`params`, '') as `params`,
-        `r`.`SQL_DATA_ACCESS` as `data_access`,
-        `r`.`IS_DETERMINISTIC` as `deterministic`,
-        `r`.`SECURITY_TYPE` as `security`
+        `r`.`ROUTINE_COMMENT` as `comment`
     from `INFORMATION_SCHEMA`.`ROUTINES` as `r`
-    left join (
-        select
-            `SPECIFIC_SCHEMA`,
-            `ROUTINE_TYPE`,
-            `SPECIFIC_NAME`,
-            group_concat(
-                if(`ROUTINE_TYPE` = 'PROCEDURE',
-                    concat(`PARAMETER_MODE`, ' `', `PARAMETER_NAME`, '` ', `DTD_IDENTIFIER`),
-                    concat('`', `PARAMETER_NAME`, '` ', `DTD_IDENTIFIER`)
-                )
-                order by `ORDINAL_POSITION` separator ', '
-            ) as `params`
-        from `INFORMATION_SCHEMA`.`PARAMETERS`
-        where
-            `SPECIFIC_SCHEMA` = ')" +
-         db_name + R"(' and
-            `PARAMETER_NAME` is not null
-        group by `SPECIFIC_SCHEMA`, `ROUTINE_TYPE`, `SPECIFIC_NAME`
-    ) as `p`
-    on
-        `p`.`SPECIFIC_SCHEMA` = `r`.`ROUTINE_SCHEMA` and
-        `p`.`ROUTINE_TYPE` = `r`.`ROUTINE_TYPE` and
-        `p`.`SPECIFIC_NAME` = `r`.`ROUTINE_NAME`
     where
         `r`.`ROUTINE_SCHEMA` = ')" +
          db_name + R"(' and

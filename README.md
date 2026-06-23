@@ -19,8 +19,7 @@ and optional schema sections, and `Schema::replicate_sql()` generates the SQL.
 | --- | --- | --- | --- |
 | name | Yes | string | The database/schema name |
 | tables | No | array or null | The array of table objects |
-| functions | No | array or null | The array of function objects |
-| procedures | No | array or null | The array of procedure objects |
+| routines | No | array or null | The array of routine objects |
 | users | No | array or null | The array of user objects |
 
 Example:
@@ -28,8 +27,7 @@ Example:
 {
   "name": "demo",
   "tables": null,
-  "functions": null,
-  "procedures": null,
+  "routines": null,
   "users": null
 }
 ```
@@ -228,56 +226,12 @@ Example:
 }
 ```
 
-## Functions (optional)
+## Routines (optional)
 
-The `functions` section is an array of function objects.
-
-Example:
-```json
-[
-]
-```
-
-### Function
-
-A function is an object that has the following fields:
-
-| Field Name | Required | Type | Description |
-| --- | --- | --- | --- |
-| name | Yes | string | The name of the function |
-| returns | Yes | string | The function return type |
-| characteristics | Yes | array | The array of function characteristics, such as `DETERMINISTIC` or `READS SQL DATA` |
-| params | Yes | array | The array of the function parameter objects |
-| body | Yes | string | The function body, without the top `BEGIN` and bottom `END` |
-
-Example:
-```json
-{
-    "name": "double_value",
-    "returns": "int",
-    "characteristics": ["DETERMINISTIC", "READS SQL DATA"],
-    "params": [
-        {
-            "name": "input_value",
-            "type": "int"
-        }
-    ],
-    "body": "RETURN input_value * 2;"
-}
-```
-
-#### Function Parameter
-
-A function parameter is an object that has the following fields:
-
-| Field Name | Required | Type | Description |
-| --- | --- | --- | --- |
-| name | Yes | string | The name of the parameter |
-| type | Yes | string | The type of the parameter |
-
-## Procedures (optional)
-
-The `procedures` section is an array of procedure objects.
+The `routines` section is an array of MySQL function and procedure SQL strings.
+Sqlr treats each routine definition as one full SQL string and does not parse
+parameters, return types, characteristics, or routine type into separate input
+fields.
 
 Example:
 ```json
@@ -285,47 +239,23 @@ Example:
 ]
 ```
 
-### Procedure
+### Routine
 
-A procedure is an object that has the following fields:
-
-| Field Name | Required | Type | Description |
-| --- | --- | --- | --- |
-| name | Yes | string | The name of the procedure |
-| characteristics | Yes | array | The array of procedure characteristics, such as `MODIFIES SQL DATA` or `SQL SECURITY INVOKER` |
-| params | Yes | array | The array of the procedure parameter objects |
-| body | Yes | string | The procedure body, without the top `BEGIN` and bottom `END` |
+A routine is a string containing the full `CREATE FUNCTION` or
+`CREATE PROCEDURE` statement.
 
 Example:
 ```json
-{
-    "name": "set_value",
-    "characteristics": ["MODIFIES SQL DATA", "SQL SECURITY INVOKER"],
-    "params": [
-        {
-            "mode": "IN",
-            "name": "input_value",
-            "type": "int"
-        },
-        {
-            "mode": "OUT",
-            "name": "output_value",
-            "type": "int"
-        }
-    ],
-    "body": "SET output_value = input_value;"
-}
+[
+    "CREATE FUNCTION `demo`.`double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL BEGIN RETURN input_value * 2; END"
+]
 ```
 
-#### Procedure Parameter
-
-A procedure parameter is an object that has the following fields:
-
-| Field Name | Required | Type | Description |
-| --- | --- | --- | --- |
-| mode | Yes | string | The parameter mode, `IN`, `OUT`, or `INOUT` |
-| name | Yes | string | The name of the parameter |
-| type | Yes | string | The type of the parameter |
+```json
+[
+    "CREATE PROCEDURE `demo`.`set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA BEGIN SET output_value = input_value; END"
+]
+```
 
 ## Users (optional)
 

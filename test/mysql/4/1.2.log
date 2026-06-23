@@ -1,0 +1,8 @@
+SET @r = 'Database "demo" exists.';
+SET @r = 'No extra routine.';
+SET @r = 'Routine double_value is ok.';
+SET @r = 'Routine double_value is ok.';
+SET @r = 'Routine comment double_value is ok.';
+SET @r = 'Routine set_value is ok.';
+SET @r = 'Routine set_value is ok.';
+SET @r = 'Routine comment set_value is ok.';

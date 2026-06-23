@@ -1,0 +1,14 @@
+CREATE DATABASE `demo`;
+SET @r = 'No extra routine.';
+SET @r = 'Routine double_value absence is ok.';
+DELIMITER <delimiter>
+CREATE FUNCTION `demo`.`double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 2; END <delimiter>
+DELIMITER ;
+ALTER FUNCTION `demo`.`double_value` COMMENT '
+SQLR_HASH:86cc287322f748135ebde42fec98d59fae8b4c622c293fbe158af7524a1bc292';
+SET @r = 'Routine set_value absence is ok.';
+DELIMITER <delimiter>
+CREATE PROCEDURE `demo`.`set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA SQL SECURITY INVOKER BEGIN SET output_value = input_value; END <delimiter>
+DELIMITER ;
+ALTER PROCEDURE `demo`.`set_value` COMMENT '
+SQLR_HASH:3ae29ef9c8ce990fde5bb83ec44d5d4467f9e25c1903298bd4c9b74bc2cd2592';

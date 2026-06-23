@@ -1,0 +1,32 @@
+-- pass 1
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "customer" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+RENAME TABLE `demo`.`account` to `demo`.`_sql_customer`;
+RENAME TABLE `demo`.`_sql_customer` to `demo`.`customer`;
+SET @r = 'Engine of "customer" is ok.';
+SET @r = 'No new column in "customer" is needed.';
+SET @r = 'No extra column in "customer".';
+ALTER TABLE `demo`.`customer` RENAME COLUMN `name` to `_sql_display_name`;
+ALTER TABLE `demo`.`customer` RENAME COLUMN `_sql_display_name` to `display_name`;
+SET @r = 'No extra foreign keys in "customer".';
+SET @r = 'Table "customer" is ok.';
+SET @r = 'Table "customer" is ok.';
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "customer" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "customer" is ok.';
+SET @r = 'No new column in "customer" is needed.';
+SET @r = 'No extra column in "customer".';
+SET @r = 'No column in "customer" needs prefix.';
+SET @r = 'No column in "customer" needs rename.';
+SET @r = 'No extra foreign keys in "customer".';
+SET @r = 'Table "customer" is ok.';
+SET @r = 'Table "customer" is ok.';
+SET @r = 'No extra table.';

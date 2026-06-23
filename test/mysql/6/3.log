@@ -1,0 +1,14 @@
+-- pass 1
+SET @r = 'Database "demo" exists.';
+SET @r = 'No extra view.';
+RENAME TABLE `demo`.`keep_me` to `demo`.`_sql__drop_keep_me`, `demo`.`remove_me` to `demo`.`_sql__drop_remove_me`;
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+DROP TABLE `demo`.`_sql__drop_keep_me`, `demo`.`_sql__drop_remove_me`;
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'No extra table.';

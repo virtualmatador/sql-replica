@@ -3,7 +3,6 @@ add_library("sqlr" STATIC
     "schema.cpp"
     "objects.cpp"
     "tables.cpp"
-    "functions.cpp"
     "routines.cpp"
     "users.cpp"
 )

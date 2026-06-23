@@ -1,0 +1,32 @@
+-- pass 1
+CREATE DATABASE `demo`;
+CREATE TABLE `demo`.`_sql_product` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'PRODUCT_TABLE';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'All tables have prefix.';
+RENAME TABLE `demo`.`_sql_product` to `demo`.`product`;
+SET @r = 'Engine of "product" is ok.';
+ALTER TABLE `demo`.`product` ADD `_sql_id` int unsigned COMMENT 'PRODUCT_ID', ADD `_sql_sku` varchar(32) COMMENT 'PRODUCT_SKU', ADD `_sql_price` int DEFAULT 0 COMMENT 'PRODUCT_PRICE', ADD `_sql_note` varchar(64) COMMENT 'PRODUCT_NOTE';
+ALTER TABLE `demo`.`product` RENAME COLUMN `_sql_` to `_sql__drop__sql_`;
+SET @r = 'All columns in "product" have prefix.';
+ALTER TABLE `demo`.`product` RENAME COLUMN `_sql_id` to `id`, RENAME COLUMN `_sql_sku` to `sku`, RENAME COLUMN `_sql_price` to `price`, RENAME COLUMN `_sql_note` to `note`;
+SET @r = 'No extra foreign keys in "product".';
+ALTER TABLE `demo`.`product` MODIFY `id` int unsigned not null auto_increment COMMENT 'PRODUCT_ID' FIRST, MODIFY `sku` varchar(32) not null COMMENT 'PRODUCT_SKU' AFTER `id`, MODIFY `price` int DEFAULT 0 not null COMMENT 'PRODUCT_PRICE' AFTER `sku`, MODIFY `note` varchar(64) null COMMENT 'PRODUCT_NOTE' AFTER `price`, ADD primary key (`id`), ADD unique index `idx_product_sku` (`sku`), DROP COLUMN `_sql__drop__sql_`;
+SET @r = 'Table "product" is ok.';
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "product" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "product" is ok.';
+SET @r = 'No new column in "product" is needed.';
+SET @r = 'No extra column in "product".';
+SET @r = 'No column in "product" needs prefix.';
+SET @r = 'No column in "product" needs rename.';
+SET @r = 'No extra foreign keys in "product".';
+SET @r = 'Table "product" is ok.';
+SET @r = 'Table "product" is ok.';
+SET @r = 'No extra table.';

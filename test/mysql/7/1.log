@@ -1,0 +1,32 @@
+-- pass 1
+CREATE DATABASE `demo`;
+CREATE TABLE `demo`.`_sql_metric` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'METRIC_TABLE';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'All tables have prefix.';
+RENAME TABLE `demo`.`_sql_metric` to `demo`.`metric`;
+SET @r = 'Engine of "metric" is ok.';
+ALTER TABLE `demo`.`metric` ADD `_sql_id` int unsigned COMMENT 'METRIC_ID', ADD `_sql_tenant_id` int unsigned COMMENT 'METRIC_TENANT', ADD `_sql_metric_day` date COMMENT 'METRIC_DAY', ADD `_sql_metric_value` int DEFAULT 0 COMMENT 'METRIC_VALUE', ADD `_sql_note` varchar(64) COMMENT 'METRIC_NOTE';
+ALTER TABLE `demo`.`metric` RENAME COLUMN `_sql_` to `_sql__drop__sql_`;
+SET @r = 'All columns in "metric" have prefix.';
+ALTER TABLE `demo`.`metric` RENAME COLUMN `_sql_id` to `id`, RENAME COLUMN `_sql_tenant_id` to `tenant_id`, RENAME COLUMN `_sql_metric_day` to `metric_day`, RENAME COLUMN `_sql_metric_value` to `metric_value`, RENAME COLUMN `_sql_note` to `note`;
+SET @r = 'No extra foreign keys in "metric".';
+ALTER TABLE `demo`.`metric` MODIFY `id` int unsigned not null auto_increment COMMENT 'METRIC_ID' FIRST, MODIFY `tenant_id` int unsigned not null COMMENT 'METRIC_TENANT' AFTER `id`, MODIFY `metric_day` date not null COMMENT 'METRIC_DAY' AFTER `tenant_id`, MODIFY `metric_value` int DEFAULT 0 not null COMMENT 'METRIC_VALUE' AFTER `metric_day`, MODIFY `note` varchar(64) null COMMENT 'METRIC_NOTE' AFTER `metric_value`, ADD primary key (`id`), ADD unique index `idx_metric_tenant_day` (`tenant_id`, `metric_day`), ADD index `idx_metric_value` (`metric_value`), DROP COLUMN `_sql__drop__sql_`;
+SET @r = 'Table "metric" is ok.';
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "metric" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "metric" is ok.';
+SET @r = 'No new column in "metric" is needed.';
+SET @r = 'No extra column in "metric".';
+SET @r = 'No column in "metric" needs prefix.';
+SET @r = 'No column in "metric" needs rename.';
+SET @r = 'No extra foreign keys in "metric".';
+SET @r = 'Table "metric" is ok.';
+SET @r = 'Table "metric" is ok.';
+SET @r = 'No extra table.';

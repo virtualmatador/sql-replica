@@ -1,0 +1,58 @@
+-- pass 1
+CREATE DATABASE `demo`;
+CREATE TABLE `demo`.`_sql_account` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'ACCOUNT_TABLE';
+CREATE TABLE `demo`.`_sql_project` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'PROJECT_TABLE';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'All tables have prefix.';
+RENAME TABLE `demo`.`_sql_account` to `demo`.`account`, `demo`.`_sql_project` to `demo`.`project`;
+SET @r = 'Engine of "account" is ok.';
+SET @r = 'Engine of "project" is ok.';
+ALTER TABLE `demo`.`account` ADD `_sql_id` int unsigned COMMENT 'ACCOUNT_ID', ADD `_sql_name` varchar(64) COMMENT 'ACCOUNT_NAME';
+ALTER TABLE `demo`.`account` RENAME COLUMN `_sql_` to `_sql__drop__sql_`;
+SET @r = 'All columns in "account" have prefix.';
+ALTER TABLE `demo`.`account` RENAME COLUMN `_sql_id` to `id`, RENAME COLUMN `_sql_name` to `name`;
+ALTER TABLE `demo`.`project` ADD `_sql_id` int unsigned COMMENT 'PROJECT_ID', ADD `_sql_account_id` int unsigned COMMENT 'PROJECT_ACCOUNT', ADD `_sql_name` varchar(64) COMMENT 'PROJECT_NAME';
+ALTER TABLE `demo`.`project` RENAME COLUMN `_sql_` to `_sql__drop__sql_`;
+SET @r = 'All columns in "project" have prefix.';
+ALTER TABLE `demo`.`project` RENAME COLUMN `_sql_id` to `id`, RENAME COLUMN `_sql_account_id` to `account_id`, RENAME COLUMN `_sql_name` to `name`;
+SET @r = 'No extra foreign keys in "account".';
+SET @r = 'Foreign key "fk_project_account" does not exist.';
+SET @r = 'No extra foreign keys in "project".';
+ALTER TABLE `demo`.`account` MODIFY `id` int unsigned not null auto_increment COMMENT 'ACCOUNT_ID' FIRST, MODIFY `name` varchar(64) not null COMMENT 'ACCOUNT_NAME' AFTER `id`, ADD primary key (`id`), DROP COLUMN `_sql__drop__sql_`;
+ALTER TABLE `demo`.`project` MODIFY `id` int unsigned not null auto_increment COMMENT 'PROJECT_ID' FIRST, MODIFY `account_id` int unsigned not null COMMENT 'PROJECT_ACCOUNT' AFTER `id`, MODIFY `name` varchar(64) not null COMMENT 'PROJECT_NAME' AFTER `account_id`, ADD primary key (`id`), ADD index `idx_project_account` (`account_id`), DROP COLUMN `_sql__drop__sql_`;
+SET @r = 'Table "account" is ok.';
+SET @r = 'Table "project" is ok.';
+SET @r = 'No extra table.';
+ALTER TABLE `demo`.`project` ADD CONSTRAINT `fk_project_account` FOREIGN KEY (`account_id`) REFERENCES `demo`.`account` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
+CREATE OR REPLACE VIEW `demo`.`project_account` AS SELECT
+`project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id` ;
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "account" exist.';
+SET @r = 'Table "project" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "account" is ok.';
+SET @r = 'Engine of "project" is ok.';
+SET @r = 'No new column in "account" is needed.';
+SET @r = 'No extra column in "account".';
+SET @r = 'No column in "account" needs prefix.';
+SET @r = 'No column in "account" needs rename.';
+SET @r = 'No new column in "project" is needed.';
+SET @r = 'No extra column in "project".';
+SET @r = 'No column in "project" needs prefix.';
+SET @r = 'No column in "project" needs rename.';
+SET @r = 'No extra foreign keys in "account".';
+SET @r = 'Foreign key "fk_project_account" does not exist.';
+SET @r = 'No extra foreign keys in "project".';
+SET @r = 'Table "account" is ok.';
+SET @r = 'Table "project" is ok.';
+SET @r = 'Table "account" is ok.';
+SET @r = 'Table "project" is ok.';
+SET @r = 'No extra table.';
+SET @r = 'Foreign key "fk_project_account" is ok.';
+CREATE OR REPLACE VIEW `demo`.`project_account` AS SELECT
+`project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id` ;

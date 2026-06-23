@@ -1,0 +1,32 @@
+-- pass 1
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "person" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+RENAME TABLE `demo`.`customer` to `demo`.`_sql_person`;
+RENAME TABLE `demo`.`_sql_person` to `demo`.`person`;
+SET @r = 'Engine of "person" is ok.';
+SET @r = 'No new column in "person" is needed.';
+SET @r = 'No extra column in "person".';
+ALTER TABLE `demo`.`person` RENAME COLUMN `display_name` to `_sql_full_name`;
+ALTER TABLE `demo`.`person` RENAME COLUMN `_sql_full_name` to `full_name`;
+SET @r = 'No extra foreign keys in "person".';
+SET @r = 'Table "person" is ok.';
+SET @r = 'Table "person" is ok.';
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "person" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "person" is ok.';
+SET @r = 'No new column in "person" is needed.';
+SET @r = 'No extra column in "person".';
+SET @r = 'No column in "person" needs prefix.';
+SET @r = 'No column in "person" needs rename.';
+SET @r = 'No extra foreign keys in "person".';
+SET @r = 'Table "person" is ok.';
+SET @r = 'Table "person" is ok.';
+SET @r = 'No extra table.';

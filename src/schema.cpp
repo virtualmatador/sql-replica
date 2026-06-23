@@ -1,6 +1,5 @@
 #include "schema.h"
 
-#include "functions.h"
 #include "objects.h"
 #include "routines.h"
 #include "tables.h"
@@ -12,13 +11,11 @@ Schema::Schema(const jsonio::json &schema, bool report, bool dry_run)
 std::string Schema::replicate_sql() const {
   const auto &db_name = schema_name();
   const auto &tables = section_or_null("tables");
-  const auto &functions = section_or_null("functions");
-  const auto &procedures = section_or_null("procedures");
+  const auto &routines = section_or_null("routines");
   const auto &users = section_or_null("users");
 
   const bool include_tables = !Objects::is_null(tables);
-  const bool include_functions = !Objects::is_null(functions);
-  const bool include_procedures = !Objects::is_null(procedures);
+  const bool include_routines = !Objects::is_null(routines);
   const bool include_users = !Objects::is_null(users);
 
   Context context{db_name, "_sql_", "_drop_", ""};
@@ -27,11 +24,8 @@ std::string Schema::replicate_sql() const {
   if (include_tables) {
     Tables::validate(tables, context.bad_prefix);
   }
-  if (include_functions) {
-    Functions::validate(functions);
-  }
-  if (include_procedures) {
-    Routines::validate(procedures);
+  if (include_routines) {
+    Routines::validate(routines);
   }
   if (include_users) {
     Users::validate(users);
@@ -68,7 +62,7 @@ set @qry = if (isnull(@old_db),
   if (include_tables) {
     sql += Tables::snapshot_schema_state(context.db_name);
   }
-  if (include_functions || include_procedures) {
+  if (include_routines) {
     sql += Routines::snapshot_schema_state(context.db_name);
   }
   if (include_users) {
@@ -78,11 +72,8 @@ set @qry = if (isnull(@old_db),
   if (include_tables) {
     sql += Tables::generate(tables, context);
   }
-  if (include_functions) {
-    sql += Functions::generate(functions, context);
-  }
-  if (include_procedures) {
-    sql += Routines::generate(procedures, context);
+  if (include_routines) {
+    sql += Routines::generate(routines, context);
   }
   if (include_users) {
     sql += Users::generate(users, context);

@@ -1,0 +1,8 @@
+SET @r = 'Database "demo" exists.';
+DROP PROCEDURE `demo`.`set_value`;
+DROP FUNCTION `demo`.`double_value`;
+DELIMITER <delimiter>
+CREATE FUNCTION `demo`.`double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 3; END <delimiter>
+DELIMITER ;
+ALTER FUNCTION `demo`.`double_value` COMMENT '
+SQLR_HASH:79932a39a349729196452e1ab37472df5c240cfa5d4d9d1df8f028e8f10f8533';

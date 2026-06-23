@@ -20,7 +20,7 @@ bool t01_bad_db_name() {
   auto empty = read_json("[]");
   return expect_throw(
       [&] {
-        Schema(schema("demo\\", empty, empty, empty, empty), true, true).replicate_sql();
+        Schema(schema("demo\\", empty, empty, empty), true, true).replicate_sql();
       },
       __FUNCTION__);
 }
@@ -38,7 +38,7 @@ bool t02_bad_engine() {
   ])");
   auto empty = read_json("[]");
   return expect_throw(
-      [&] { Schema(schema(tables, empty, empty, empty), true, true).replicate_sql(); },
+      [&] { Schema(schema(tables, empty, empty), true, true).replicate_sql(); },
       __FUNCTION__);
 }
 
@@ -57,7 +57,7 @@ bool t03_bad_key_type() {
   ])");
   auto empty = read_json("[]");
   return expect_throw(
-      [&] { Schema(schema(tables, empty, empty, empty), true, true).replicate_sql(); },
+      [&] { Schema(schema(tables, empty, empty), true, true).replicate_sql(); },
       __FUNCTION__);
 }
 
@@ -83,7 +83,7 @@ bool t04_bad_foreign_key_action() {
   ])");
   auto empty = read_json("[]");
   return expect_throw(
-      [&] { Schema(schema(tables, empty, empty, empty), true, true).replicate_sql(); },
+      [&] { Schema(schema(tables, empty, empty), true, true).replicate_sql(); },
       __FUNCTION__);
 }
 
@@ -100,7 +100,7 @@ bool t05_unknown_table_field() {
   ])");
   auto empty = read_json("[]");
   return expect_throw(
-      [&] { Schema(schema(tables, empty, empty, empty), true, true).replicate_sql(); },
+      [&] { Schema(schema(tables, empty, empty), true, true).replicate_sql(); },
       __FUNCTION__);
 }
 
@@ -115,7 +115,7 @@ bool t06_bad_user_subject() {
     }
   ])");
   return expect_throw(
-      [&] { Schema(schema(empty, empty, empty, users), true, true).replicate_sql(); },
+      [&] { Schema(schema(empty, empty, users), true, true).replicate_sql(); },
       __FUNCTION__);
 }
 
@@ -130,14 +130,25 @@ bool t07_bad_permission_type() {
     }
   ])");
   return expect_throw(
-      [&] { Schema(schema(empty, empty, empty, users), true, true).replicate_sql(); },
+      [&] { Schema(schema(empty, empty, users), true, true).replicate_sql(); },
+      __FUNCTION__);
+}
+
+bool t08_bad_routine() {
+  auto empty = read_json("[]");
+  auto routines = read_json(R"([
+    "CREATE TRIGGER bad_trigger BEGIN END"
+  ])");
+  return expect_throw(
+      [&] { Schema(schema(empty, routines, empty), true, true).replicate_sql(); },
       __FUNCTION__);
 }
 
 int main() {
   if (t01_bad_db_name() && t02_bad_engine() && t03_bad_key_type() &&
       t04_bad_foreign_key_action() && t05_unknown_table_field() &&
-      t06_bad_user_subject() && t07_bad_permission_type() && true) {
+      t06_bad_user_subject() && t07_bad_permission_type() &&
+      t08_bad_routine() && true) {
     return 0;
   }
   return -1;

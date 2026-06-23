@@ -1,0 +1,32 @@
+-- pass 1
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "metric" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "metric" is ok.';
+ALTER TABLE `demo`.`metric` ADD `_sql_status` tinyint DEFAULT 1 COMMENT 'METRIC_STATUS';
+SET @r = 'No extra column in "metric".';
+ALTER TABLE `demo`.`metric` RENAME COLUMN `metric_value` to `_sql_amount`;
+ALTER TABLE `demo`.`metric` RENAME COLUMN `_sql_amount` to `amount`, RENAME COLUMN `_sql_status` to `status`;
+SET @r = 'No extra foreign keys in "metric".';
+ALTER TABLE `demo`.`metric` MODIFY `metric_day` date not null COMMENT 'METRIC_DAY' AFTER `id`, MODIFY `tenant_id` int unsigned not null COMMENT 'METRIC_TENANT' AFTER `metric_day`, MODIFY `amount` bigint not null COMMENT 'METRIC_VALUE' AFTER `tenant_id`, MODIFY `status` tinyint DEFAULT 1 not null COMMENT 'METRIC_STATUS' AFTER `amount`, MODIFY `note` text null COMMENT 'METRIC_NOTE' AFTER `status`, DROP INDEX `idx_metric_tenant_day`, ADD unique index `idx_metric_tenant_day` (`metric_day`, `tenant_id`), ADD index `idx_metric_status` (`status`), DROP INDEX `idx_metric_value`;
+ALTER TABLE `demo`.`metric` ALTER COLUMN `amount` DROP DEFAULT;
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+SET @r = 'Table "metric" exist.';
+SET @r = 'No extra view.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "metric" is ok.';
+SET @r = 'No new column in "metric" is needed.';
+SET @r = 'No extra column in "metric".';
+SET @r = 'No column in "metric" needs prefix.';
+SET @r = 'No column in "metric" needs rename.';
+SET @r = 'No extra foreign keys in "metric".';
+SET @r = 'Table "metric" is ok.';
+SET @r = 'Table "metric" is ok.';
+SET @r = 'No extra table.';

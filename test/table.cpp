@@ -16,7 +16,7 @@ bool t01() {
   ])");
   auto empty = read_json("[]");
   const auto sql =
-      Schema(schema(tables, empty, empty, empty), false, true).replicate_sql();
+      Schema(schema(tables, empty, empty), false, true).replicate_sql();
   return expect_contains(sql,
                          "set @_sql_tables = if(isnull(@old_db), json_array()",
                          __FUNCTION__) &&
@@ -64,7 +64,7 @@ bool t02_rename_updates_dependents() {
   ])");
   auto empty = read_json("[]");
   const auto sql =
-      Schema(schema(tables, empty, empty, empty), false, true).replicate_sql();
+      Schema(schema(tables, empty, empty), false, true).replicate_sql();
   return expect_contains(
              sql,
              "set @_sql_indexes = if(@new_table = @old_table, @_sql_indexes",
@@ -105,7 +105,7 @@ bool t03_keys_are_applied_before_state_update() {
   ])");
   auto empty = read_json("[]");
   const auto sql =
-      Schema(schema(tables, empty, empty, empty), false, false).replicate_sql();
+      Schema(schema(tables, empty, empty), false, false).replicate_sql();
   const auto check_index = sql.find("select\n  `name`,\n  `key_def`");
   const auto update_index = sql.find("json_array_append(@_sql_indexes");
   return check_index != std::string::npos &&
@@ -138,7 +138,7 @@ bool t04_dropped_foreign_key_releases_index_state() {
   ])");
   auto empty = read_json("[]");
   const auto sql =
-      Schema(schema(tables, empty, empty, empty), false, false).replicate_sql();
+      Schema(schema(tables, empty, empty), false, false).replicate_sql();
   return expect_contains(
              sql,
              "if(`table` = @old_table and `name` = @old_constraint, false, "
@@ -163,7 +163,7 @@ bool t05_marked_extra_tables_move_dependent_state() {
   ])");
   auto empty = read_json("[]");
   const auto sql =
-      Schema(schema(tables, empty, empty, empty), false, false).replicate_sql();
+      Schema(schema(tables, empty, empty), false, false).replicate_sql();
   return expect_contains(
              sql,
              "`planned_tables`.`name` = `_sql_ordered_columns`.`table`",
@@ -190,7 +190,7 @@ bool t06_extra_columns_stale_dependent_state() {
   ])");
   auto empty = read_json("[]");
   const auto sql =
-      Schema(schema(tables, empty, empty, empty), false, false).replicate_sql();
+      Schema(schema(tables, empty, empty), false, false).replicate_sql();
   return expect_contains(sql, "concat('__stale__', `key_def`)",
                          __FUNCTION__) &&
          expect_contains(sql, "concat('__stale__', `f_key_def`)",
@@ -209,7 +209,7 @@ bool t07_default_drop_uses_state_before_clearing() {
   ])");
   auto empty = read_json("[]");
   const auto sql =
-      Schema(schema(tables, empty, empty, empty), false, false).replicate_sql();
+      Schema(schema(tables, empty, empty), false, false).replicate_sql();
   const auto keep_default = sql.find("json_extract(@_sql_columns, "
                                      "concat(@column_object, '.default'))");
   const auto drop_default = sql.find("ALTER COLUMN `id` DROP DEFAULT");
