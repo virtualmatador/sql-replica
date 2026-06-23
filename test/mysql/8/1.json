@@ -1,0 +1,20 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "ticket",
+      "id": "TICKET_TABLE",
+      "columns": [
+        {"id": "TICKET_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "TICKET_TITLE", "name": "title", "type": "varchar(64)", "default": "'untitled'"},
+        {"id": "TICKET_STATUS", "name": "status", "type": "varchar(16)", "default": "'open'"}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]}
+      ]
+    }
+  ],
+  "functions": null,
+  "procedures": null,
+  "users": null
+}

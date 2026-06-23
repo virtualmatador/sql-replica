@@ -1,0 +1,23 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "product",
+      "id": "PRODUCT_TABLE",
+      "engine": "InnoDB",
+      "columns": [
+        {"id": "PRODUCT_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "PRODUCT_SKU", "name": "sku", "type": "varchar(32)"},
+        {"id": "PRODUCT_PRICE", "name": "price", "type": "int", "default": "0"},
+        {"id": "PRODUCT_NOTE", "name": "note", "type": "varchar(64)", "null": true}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]},
+        {"name": "idx_product_sku", "type": "unique index", "columns": ["sku"]}
+      ]
+    }
+  ],
+  "functions": null,
+  "procedures": null,
+  "users": null
+}

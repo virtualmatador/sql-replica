@@ -8,6 +8,18 @@
 #include <string.h>
 #include <utility>
 
+namespace {
+
+std::string default_clause_for_dynamic_sql(const jsonio::json *default_value) {
+  if (!default_value) {
+    return "";
+  }
+  return " DEFAULT " +
+         Objects::escape_sql_string(default_value->get_string());
+}
+
+} // namespace
+
 void Tables::validate_engine(const std::string &engine) {
   if (engine.empty() ||
       std::any_of(engine.begin(), engine.end(), [](unsigned char c) {
@@ -73,7 +85,7 @@ void Tables::validate(const jsonio::json &tables,
         throw std::runtime_error("Publish MySQL: Column No Id");
       }
       if (auto default_value = column.at("default"); default_value) {
-        Objects::sanitize(default_value->get_string(), "\\'`");
+        Objects::sanitize(default_value->get_string(), "\\`");
       }
       if (++column_ids[column["id"].get_string()] > 1) {
         throw std::runtime_error("Publish MySQL: Repeated Column Id");
@@ -732,7 +744,7 @@ set @sub_query = if (isnull(@old_column),
   concat(@sub_query, 'ADD `)" +
               context_.bad_prefix + column["name"].get_string() + R"(` )" +
               column["type"].get_string() +
-              (default_value ? " DEFAULT " + default_value->get_string() : "") +
+              default_clause_for_dynamic_sql(default_value) +
               R"( COMMENT \')" + column["id"].get_string() +
               R"(\', ')
 ,
@@ -1394,7 +1406,7 @@ set @sub_query = if (@ordinal_change or
           (is_auto ? "true" : "false") + R"(,
   concat(@sub_query, 'MODIFY `)" +
           column["name"].get_string() + R"(` )" + column["type"].get_string() +
-          (default_value ? " DEFAULT " + default_value->get_string() : "") +
+          default_clause_for_dynamic_sql(default_value) +
           (is_null ? " null" : " not null") +
           (is_auto ? " auto_increment" : "") + R"( COMMENT \')" +
           column["id"].get_string() + R"(\' )" + order +

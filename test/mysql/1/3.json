@@ -1,0 +1,19 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "person",
+      "id": "ACCOUNT_TABLE",
+      "columns": [
+        {"id": "ACCOUNT_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "ACCOUNT_NAME", "name": "full_name", "type": "varchar(64)"}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]}
+      ]
+    }
+  ],
+  "functions": null,
+  "procedures": null,
+  "users": null
+}

@@ -1,0 +1,25 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "metric",
+      "id": "METRIC_TABLE",
+      "columns": [
+        {"id": "METRIC_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "METRIC_DAY", "name": "metric_day", "type": "date"},
+        {"id": "METRIC_TENANT", "name": "tenant_id", "type": "int unsigned"},
+        {"id": "METRIC_VALUE", "name": "amount", "type": "bigint"},
+        {"id": "METRIC_STATUS", "name": "status", "type": "tinyint", "default": "1"},
+        {"id": "METRIC_NOTE", "name": "note", "type": "text", "null": true}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]},
+        {"name": "idx_metric_tenant_day", "type": "unique index", "columns": ["metric_day", "tenant_id"]},
+        {"name": "idx_metric_status", "type": "index", "columns": ["status"]}
+      ]
+    }
+  ],
+  "functions": null,
+  "procedures": null,
+  "users": null
+}

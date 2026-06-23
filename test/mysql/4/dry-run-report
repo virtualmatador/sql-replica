@@ -1,0 +1,2 @@
+Run generated SQL with both report and dry-run enabled, pipe the reported
+commands into mysql, and repeat once to verify idempotency.

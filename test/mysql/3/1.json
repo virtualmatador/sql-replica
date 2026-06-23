@@ -1,0 +1,61 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "account",
+      "id": "ACCOUNT_TABLE",
+      "columns": [
+        {"id": "ACCOUNT_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "ACCOUNT_NAME", "name": "name", "type": "varchar(64)"}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]}
+      ]
+    },
+    {
+      "name": "project",
+      "id": "PROJECT_TABLE",
+      "columns": [
+        {"id": "PROJECT_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "PROJECT_ACCOUNT", "name": "account_id", "type": "int unsigned"},
+        {"id": "PROJECT_NAME", "name": "name", "type": "varchar(64)"}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]},
+        {"name": "idx_project_account", "type": "index", "columns": ["account_id"]}
+      ],
+      "foreign-keys": [
+        {
+          "name": "fk_project_account",
+          "delete": "RESTRICT",
+          "update": "RESTRICT",
+          "columns": ["account_id"],
+          "table": "account",
+          "keys": ["id"]
+        }
+      ],
+      "views": [
+        {
+          "name": "project_account",
+          "columns": ["id", "name"],
+          "joints": [
+            {
+              "table": "account",
+              "as": "acct",
+              "type": "inner",
+              "columns": [
+                {"name": "name", "as": "account_name"}
+              ],
+              "ons": [
+                {"foreign": "id", "base": {"table": "project", "column": "account_id"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "functions": null,
+  "procedures": null,
+  "users": null
+}

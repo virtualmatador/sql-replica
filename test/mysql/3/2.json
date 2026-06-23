@@ -1,0 +1,42 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "owner",
+      "id": "ACCOUNT_TABLE",
+      "columns": [
+        {"id": "ACCOUNT_ID", "name": "owner_id", "type": "int unsigned", "auto": true},
+        {"id": "ACCOUNT_NAME", "name": "display_name", "type": "varchar(64)"}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["owner_id"]}
+      ]
+    },
+    {
+      "name": "project",
+      "id": "PROJECT_TABLE",
+      "columns": [
+        {"id": "PROJECT_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "PROJECT_ACCOUNT", "name": "owner_id", "type": "int unsigned"},
+        {"id": "PROJECT_NAME", "name": "name", "type": "varchar(64)"}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]},
+        {"name": "idx_project_owner", "type": "index", "columns": ["owner_id"]}
+      ],
+      "foreign-keys": [
+        {
+          "name": "fk_project_owner",
+          "delete": "CASCADE",
+          "update": "CASCADE",
+          "columns": ["owner_id"],
+          "table": "owner",
+          "keys": ["owner_id"]
+        }
+      ]
+    }
+  ],
+  "functions": null,
+  "procedures": null,
+  "users": null
+}

@@ -1,0 +1,25 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "account",
+      "id": "ACCOUNT_TABLE",
+      "columns": [
+        {"id": "ACCOUNT_ID", "name": "id", "type": "int unsigned", "auto": true}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]}
+      ]
+    }
+  ],
+  "functions": [],
+  "procedures": [],
+  "users": [
+    {
+      "name": "Alice",
+      "permissions": [
+        {"type": "table", "subject": "account", "operations": ["SELECT", "INSERT"]}
+      ]
+    }
+  ]
+}

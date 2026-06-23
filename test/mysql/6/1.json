@@ -1,0 +1,29 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "keep_me",
+      "id": "KEEP_TABLE",
+      "columns": [
+        {"id": "KEEP_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "KEEP_NAME", "name": "name", "type": "varchar(64)"}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]}
+      ]
+    },
+    {
+      "name": "remove_me",
+      "id": "REMOVE_TABLE",
+      "columns": [
+        {"id": "REMOVE_ID", "name": "id", "type": "int unsigned", "auto": true}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]}
+      ]
+    }
+  ],
+  "functions": null,
+  "procedures": null,
+  "users": null
+}
