@@ -4,6 +4,7 @@
 #include "routines.h"
 #include "tables.h"
 #include "users.h"
+#include "views.h"
 
 Schema::Schema(const jsonio::json &schema, bool report, bool dry_run)
     : schema_(schema), report_(report), dry_run_(dry_run) {}
@@ -11,10 +12,12 @@ Schema::Schema(const jsonio::json &schema, bool report, bool dry_run)
 std::string Schema::replicate_sql() const {
   const auto &db_name = schema_name();
   const auto &tables = section_or_null("tables");
+  const auto &views = section_or_null("views");
   const auto &routines = section_or_null("routines");
   const auto &users = section_or_null("users");
 
   const bool include_tables = !Objects::is_null(tables);
+  const bool include_views = !Objects::is_null(views);
   const bool include_routines = !Objects::is_null(routines);
   const bool include_users = !Objects::is_null(users);
 
@@ -23,6 +26,9 @@ std::string Schema::replicate_sql() const {
 
   if (include_tables) {
     Tables::validate(tables, context.bad_prefix);
+  }
+  if (include_views) {
+    Views::validate(views);
   }
   if (include_routines) {
     Routines::validate(routines);
@@ -62,6 +68,9 @@ set @qry = if (isnull(@old_db),
   if (include_tables) {
     sql += Tables::snapshot_schema_state(context.db_name);
   }
+  if (include_views) {
+    sql += Views::snapshot_schema_state(context.db_name);
+  }
   if (include_routines) {
     sql += Routines::snapshot_schema_state(context.db_name);
   }
@@ -71,6 +80,9 @@ set @qry = if (isnull(@old_db),
 
   if (include_tables) {
     sql += Tables::generate(tables, context);
+  }
+  if (include_views) {
+    sql += Views::generate(views, context);
   }
   if (include_routines) {
     sql += Routines::generate(routines, context);

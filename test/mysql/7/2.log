@@ -1,7 +1,6 @@
 -- pass 1
 SET @r = 'Database "demo" exists.';
 SET @r = 'Table "metric" exist.';
-SET @r = 'No extra view.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
 SET @r = 'No table rename needed.';
@@ -17,7 +16,6 @@ SET @r = 'No extra table.';
 -- pass 2
 SET @r = 'Database "demo" exists.';
 SET @r = 'Table "metric" exist.';
-SET @r = 'No extra view.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
 SET @r = 'No table rename needed.';

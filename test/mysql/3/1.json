@@ -33,27 +33,11 @@
           "table": "account",
           "keys": ["id"]
         }
-      ],
-      "views": [
-        {
-          "name": "project_account",
-          "columns": ["id", "name"],
-          "joints": [
-            {
-              "table": "account",
-              "as": "acct",
-              "type": "inner",
-              "columns": [
-                {"name": "name", "as": "account_name"}
-              ],
-              "ons": [
-                {"foreign": "id", "base": {"table": "project", "column": "account_id"}}
-              ]
-            }
-          ]
-        }
       ]
     }
+  ],
+  "views": [
+    "CREATE OR REPLACE VIEW `project_account` AS SELECT `project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id`;"
   ],
   "users": null
 }

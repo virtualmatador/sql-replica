@@ -56,8 +56,7 @@ void Tables::validate(const jsonio::json &tables,
   for (std::map<std::string, std::size_t> table_ids;
        const auto &table : tables.get_array()) {
     Objects::validate_fields(
-        table,
-        {"id", "name", "engine", "columns", "keys", "foreign-keys", "views"},
+        table, {"id", "name", "engine", "columns", "keys", "foreign-keys"},
         "Table");
     Objects::sanitize(table["name"].get_string(), "\\'`");
     if (table["name"].get_string().rfind(bad_prefix, 0) == 0) {
@@ -136,39 +135,6 @@ void Tables::validate(const jsonio::json &tables,
         }
       }
     }
-    if (auto views = table.at("views"); views) {
-      for (const auto &view : views->get_array()) {
-        Objects::validate_fields(view, {"name", "columns", "joints"}, "View");
-        Objects::sanitize(view["name"].get_string(), "\\'`");
-        for (const auto &clm : view["columns"].get_array()) {
-          Objects::sanitize(clm.get_string(), "\\'`");
-        }
-        for (const auto &joint : view["joints"].get_array()) {
-          Objects::validate_fields(
-              joint, {"table", "as", "type", "columns", "ons"}, "Joint");
-          if (const auto &type = joint["type"].get_string();
-              type != "inner" && type != "left outer" &&
-              type != "right outer") {
-            throw std::runtime_error("Publish MySQL: Bad Join Type");
-          }
-          Objects::sanitize(joint["table"].get_string(), "\\'`");
-          Objects::sanitize(joint["as"].get_string(), "\\'`");
-          for (const auto &on : joint["ons"].get_array()) {
-            Objects::validate_fields(on, {"foreign", "base"}, "Relation");
-            Objects::validate_fields(on["base"], {"table", "column"},
-                                     "Relation Base");
-            Objects::sanitize(on["base"]["table"].get_string(), "\\'`");
-            Objects::sanitize(on["base"]["column"].get_string(), "\\'`");
-            Objects::sanitize(on["foreign"].get_string(), "\\'`");
-          }
-          for (const auto &clm : joint["columns"].get_array()) {
-            Objects::validate_fields(clm, {"name", "as"}, "View Column");
-            Objects::sanitize(clm["name"].get_string(), "\\'`");
-            Objects::sanitize(clm["as"].get_string(), "\\'`");
-          }
-        }
-      }
-    }
   }
 }
 
@@ -182,7 +148,6 @@ Tables::Tables(const jsonio::json &tables, const Context &context)
 
 std::string Tables::generate() {
   create_tables_with_prefix();
-  remove_extra_views();
   mark_extra_tables();
   apply_table_names();
   apply_table_engine();
@@ -192,7 +157,6 @@ std::string Tables::generate() {
   remove_extra_defaults();
   remove_extra_tables();
   create_foreign_keys();
-  create_views();
   return sql_;
 }
 
@@ -200,7 +164,6 @@ void Tables::create_tables_with_prefix() {
   // Create tables with prefix
   sql_ += R"(
 set @all_tables = '';
-set @all_views = '';
 )";
   for (const auto &table : tables_.get_array()) {
     if (auto engine = table.get_object().find("engine");
@@ -231,14 +194,6 @@ set @qry = if (isnull(@old_table),
             table["name"].get_string() + R"(" exist.\';'
 );
 )";
-    if (auto views = table.at("views"); views) {
-      for (const auto &view : views->get_array()) {
-        sql_ += R"(
-set @all_views = concat(@all_views, '{)" +
-                view["name"].get_string() + R"(}');
-)";
-      }
-    }
     sql_ += context_.exec;
     sql_ += R"(
 set @_sql_tables = if(isnull(@old_table),
@@ -274,41 +229,6 @@ set @_sql_columns = if(isnull(@old_table),
 );
 )";
   }
-}
-
-void Tables::remove_extra_views() {
-  // Remove extra views
-  sql_ += R"(
-set @sub_query = null;
-select group_concat(concat('`)" +
-          context_.db_name + R"(`.`', `name`, '`') SEPARATOR ', ')
-  into @sub_query
-  from )" +
-          Objects::planned_views_from_json() +
-          R"(
-  where instr(@all_views, concat('{', `name`, '}')) = 0;
-set @qry = if (isnull(@sub_query),
-  'SET @r = \'No extra view.\';'
-,
-  concat('DROP VIEW ', @sub_query, ';')
-);
-)";
-  sql_ += context_.exec;
-  sql_ += R"(
-set @_sql_views = (
-  select coalesce(json_arrayagg(json_object(
-      'name', `name`
-  )), json_array())
-  from (
-      select *
-      from )" +
-          Objects::planned_views_from_json() +
-          R"(
-      where instr(@all_views, concat('{', `name`, '}')) != 0
-      order by `name`
-  ) as `_sql_ordered_views`
-);
-)";
 }
 
 void Tables::mark_extra_tables() {
@@ -1802,73 +1722,6 @@ set @_sql_foreign_keys = if(isnull(@old_constraint),
   }
 }
 
-void Tables::create_views() {
-  // Create views
-  for (const auto &table : tables_.get_array()) {
-    if (auto views = table.at("views"); views) {
-      for (const auto &view : views->get_array()) {
-        sql_ += R"(
-set @qry = 'CREATE OR REPLACE VIEW `)" +
-                context_.db_name + R"(`.`)" + view["name"].get_string() +
-                R"(` AS SELECT
-)";
-        std::string columns;
-        for (const auto &clm : view["columns"].get_array()) {
-          if (!columns.empty()) {
-            columns += ", ";
-          }
-          columns +=
-              "`" + table["name"].get_string() + "`.`" + clm.get_string() + "`";
-        }
-        std::string from = R"( FROM `)" + context_.db_name + R"(`.`)" +
-                           table["name"].get_string() + R"(` )";
-        for (const auto &joint : view["joints"].get_array()) {
-          from += joint["type"].get_string() + R"( join `)" + context_.db_name +
-                  R"(`.`)" + joint["table"].get_string() + R"(` AS `)" +
-                  joint["as"].get_string() + R"(` ON )";
-          std::string ons;
-          for (const auto &on : joint["ons"].get_array()) {
-            if (!ons.empty()) {
-              ons += "AND ";
-            }
-            ons += R"(`)" + context_.db_name + R"(`.`)" +
-                   on["base"]["table"].get_string() + R"(`.`)" +
-                   on["base"]["column"].get_string() + R"(` = `)" +
-                   context_.db_name + R"(`.`)" + joint["as"].get_string() +
-                   R"(`.`)" + on["foreign"].get_string() + R"(` )";
-          }
-          from += ons;
-          for (const auto &clm : joint["columns"].get_array()) {
-            if (!columns.empty()) {
-              columns += ", ";
-            }
-            columns += R"(`)" + context_.db_name + R"(`.`)" +
-                       joint["as"].get_string() + R"(`.`)" +
-                       clm["name"].get_string() + R"(` AS `)" +
-                       clm["as"].get_string() + "`";
-          }
-        }
-        sql_ += columns + from + R"(;';)";
-        sql_ += context_.exec;
-        sql_ += R"(
-set @old_view = null;
-select `name` into @old_view
-  from )" + Objects::planned_views_from_json() +
-                R"(
-  where `name` = ')" +
-                view["name"].get_string() + R"(';
-set @_sql_views = if(isnull(@old_view),
-  json_array_append(@_sql_views, '$', json_object(
-      'name', ')" +
-                view["name"].get_string() + R"('
-  )),
-  @_sql_views
-);
-)";
-      }
-    }
-  }
-}
 std::string Tables::snapshot_schema_state(const std::string &db_name) {
   std::string sql;
   sql += R"(
@@ -1992,18 +1845,6 @@ from (
         `REFERENCED_TABLE_NAME`)
     order by `fk`.`TABLE_NAME`, `fk`.`CONSTRAINT_NAME`
 ) as `_sql_ordered_foreign_keys`
-));
-set @_sql_views = if(isnull(@old_db), json_array(), (
-select coalesce(json_arrayagg(json_object(
-    'name', `name`
-)), json_array())
-from (
-    select `TABLE_NAME` as `name`
-    from `INFORMATION_SCHEMA`.`TABLES`
-    where `TABLE_SCHEMA` = ')" +
-         db_name + R"(' and `TABLE_TYPE` = 'VIEW'
-    order by `TABLE_NAME`
-) as `_sql_ordered_views`
 ));
 )";
   return sql;

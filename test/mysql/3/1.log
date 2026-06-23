@@ -2,7 +2,6 @@
 CREATE DATABASE `demo`;
 CREATE TABLE `demo`.`_sql_account` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'ACCOUNT_TABLE';
 CREATE TABLE `demo`.`_sql_project` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'PROJECT_TABLE';
-SET @r = 'No extra view.';
 SET @r = 'No extra table.';
 SET @r = 'All tables have prefix.';
 RENAME TABLE `demo`.`_sql_account` to `demo`.`account`, `demo`.`_sql_project` to `demo`.`project`;
@@ -25,13 +24,12 @@ SET @r = 'Table "account" is ok.';
 SET @r = 'Table "project" is ok.';
 SET @r = 'No extra table.';
 ALTER TABLE `demo`.`project` ADD CONSTRAINT `fk_project_account` FOREIGN KEY (`account_id`) REFERENCES `demo`.`account` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
-CREATE OR REPLACE VIEW `demo`.`project_account` AS SELECT
-`project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id` ;
+SET @r = 'No extra view.';
+CREATE OR REPLACE VIEW `demo`.`project_account` AS SELECT `project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id`;
 -- pass 2
 SET @r = 'Database "demo" exists.';
 SET @r = 'Table "account" exist.';
 SET @r = 'Table "project" exist.';
-SET @r = 'No extra view.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
 SET @r = 'No table rename needed.';
@@ -54,5 +52,5 @@ SET @r = 'Table "account" is ok.';
 SET @r = 'Table "project" is ok.';
 SET @r = 'No extra table.';
 SET @r = 'Foreign key "fk_project_account" is ok.';
-CREATE OR REPLACE VIEW `demo`.`project_account` AS SELECT
-`project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id` ;
+SET @r = 'No extra view.';
+CREATE OR REPLACE VIEW `demo`.`project_account` AS SELECT `project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id`;

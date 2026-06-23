@@ -144,11 +144,58 @@ bool t08_bad_routine() {
       __FUNCTION__);
 }
 
+bool t09_bad_routine_schema() {
+  auto empty = read_json("[]");
+  auto routines = read_json(R"([
+    "CREATE PROCEDURE other_db.set_value() BEGIN SELECT 1; END"
+  ])");
+  return expect_throw(
+      [&] { Schema(schema(empty, routines, empty), true, true).replicate_sql(); },
+      __FUNCTION__);
+}
+
+bool t10_bad_view_schema() {
+  auto empty = read_json("[]");
+  auto views = read_json(R"([
+    "CREATE OR REPLACE VIEW other_db.account_view AS SELECT 1"
+  ])");
+  return expect_throw(
+      [&] {
+        Schema(schema("demo", empty, views, empty, empty), true, true)
+            .replicate_sql();
+      },
+      __FUNCTION__);
+}
+
+bool t11_skip_comments() {
+  auto empty = read_json("[]");
+  auto routines = read_json(R"([
+    "/* FUNCTION wrong_name */ CREATE PROCEDURE set_value() BEGIN SELECT 1; END"
+  ])");
+  auto views = read_json(R"([
+    "-- VIEW wrong_name\nCREATE OR REPLACE VIEW account_view AS SELECT 1"
+  ])");
+
+  const auto routine_sql =
+      Schema(schema(empty, routines, empty), true, true).replicate_sql();
+  const auto view_sql =
+      Schema(schema("demo", empty, views, empty, empty), true, true)
+          .replicate_sql();
+
+  return expect_contains(routine_sql,
+                         "CREATE PROCEDURE `demo`.`set_value`()",
+                         __FUNCTION__) &&
+         expect_contains(view_sql,
+                         "CREATE OR REPLACE VIEW `demo`.`account_view`",
+                         __FUNCTION__);
+}
+
 int main() {
   if (t01_bad_db_name() && t02_bad_engine() && t03_bad_key_type() &&
       t04_bad_foreign_key_action() && t05_unknown_table_field() &&
       t06_bad_user_subject() && t07_bad_permission_type() &&
-      t08_bad_routine() && true) {
+      t08_bad_routine() && t09_bad_routine_schema() &&
+      t10_bad_view_schema() && t11_skip_comments() && true) {
     return 0;
   }
   return -1;

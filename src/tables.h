@@ -22,7 +22,6 @@ private:
 
   std::string generate();
   void create_tables_with_prefix();
-  void remove_extra_views();
   void mark_extra_tables();
   void apply_table_names();
   void apply_table_engine();
@@ -32,7 +31,6 @@ private:
   void remove_extra_defaults();
   void remove_extra_tables();
   void create_foreign_keys();
-  void create_views();
 
   static void validate_engine(const std::string &engine);
   static void validate_key_type(const std::string &type);

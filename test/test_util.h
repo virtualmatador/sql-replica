@@ -17,14 +17,22 @@ jsonio::json read_json(const std::string &text) {
 }
 
 jsonio::json schema(const std::string &name, const jsonio::json &tables,
-                    const jsonio::json &routines, const jsonio::json &users) {
+                    const jsonio::json &views, const jsonio::json &routines,
+                    const jsonio::json &users) {
   jsonio::json result = jsonio::json_obj{};
   auto &object = result.get_object();
   object["name"] = name;
   object["tables"] = tables;
+  object["views"] = views;
   object["routines"] = routines;
   object["users"] = users;
   return result;
+}
+
+jsonio::json schema(const std::string &name, const jsonio::json &tables,
+                    const jsonio::json &routines, const jsonio::json &users) {
+  static const jsonio::json null;
+  return schema(name, tables, null, routines, users);
 }
 
 jsonio::json schema(const jsonio::json &tables, const jsonio::json &routines,

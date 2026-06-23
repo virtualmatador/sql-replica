@@ -20,9 +20,10 @@ bool t01() {
          expect_contains(
              sql, "set @_sql_foreign_keys = if(isnull(@old_db), json_array()",
              __FUNCTION__) &&
-         expect_contains(sql,
-                         "set @_sql_views = if(isnull(@old_db), json_array()",
-                         __FUNCTION__) &&
+         expect_not_contains(sql,
+                             "set @_sql_views = if(isnull(@old_db), "
+                             "json_array()",
+                             __FUNCTION__) &&
          expect_contains(sql, "set @_sql_users =", __FUNCTION__) &&
          expect_contains(sql, "set @_sql_permissions =", __FUNCTION__) &&
          expect_contains(sql, "set @all_users = '';", __FUNCTION__) &&
@@ -71,6 +72,9 @@ bool t04_empty_sections_reconcile_work() {
 
   const auto table_sql =
       Schema(schema(empty, null, null), true, true).replicate_sql();
+  const auto view_sql =
+      Schema(schema("demo", null, empty, null, null), true, true)
+          .replicate_sql();
   const auto routine_sql =
       Schema(schema(null, empty, null), true, true).replicate_sql();
   const auto user_sql =
@@ -78,6 +82,12 @@ bool t04_empty_sections_reconcile_work() {
 
   return expect_contains(table_sql, "set @all_tables = '';", __FUNCTION__) &&
          expect_contains(table_sql, "DROP TABLE", __FUNCTION__) &&
+         expect_not_contains(table_sql, "set @all_views = '';",
+                             __FUNCTION__) &&
+         expect_contains(view_sql, "set @all_views = '';", __FUNCTION__) &&
+         expect_contains(view_sql, "DROP VIEW", __FUNCTION__) &&
+         expect_not_contains(view_sql, "set @all_tables = '';",
+                             __FUNCTION__) &&
          expect_not_contains(table_sql, "set @all_routines = '';",
                              __FUNCTION__) &&
          expect_contains(routine_sql, "set @all_routines = '';",

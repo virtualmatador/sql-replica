@@ -2,7 +2,6 @@
 CREATE DATABASE `demo`;
 CREATE TABLE `demo`.`_sql_keep_me` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'KEEP_TABLE';
 CREATE TABLE `demo`.`_sql_remove_me` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'REMOVE_TABLE';
-SET @r = 'No extra view.';
 SET @r = 'No extra table.';
 SET @r = 'All tables have prefix.';
 RENAME TABLE `demo`.`_sql_keep_me` to `demo`.`keep_me`, `demo`.`_sql_remove_me` to `demo`.`remove_me`;
@@ -27,7 +26,6 @@ SET @r = 'No extra table.';
 SET @r = 'Database "demo" exists.';
 SET @r = 'Table "keep_me" exist.';
 SET @r = 'Table "remove_me" exist.';
-SET @r = 'No extra view.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
 SET @r = 'No table rename needed.';

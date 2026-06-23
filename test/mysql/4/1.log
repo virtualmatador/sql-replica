@@ -5,10 +5,10 @@ DELIMITER <delimiter>
 CREATE FUNCTION `demo`.`double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 2; END <delimiter>
 DELIMITER ;
 ALTER FUNCTION `demo`.`double_value` COMMENT '
-SQLR_HASH:86cc287322f748135ebde42fec98d59fae8b4c622c293fbe158af7524a1bc292';
+SQLR_HASH:242e6cb3984e295e7bf29a1311aeca22ee3bf2263a6b85f077ebc8fe5a96db64';
 SET @r = 'Routine set_value absence is ok.';
 DELIMITER <delimiter>
 CREATE PROCEDURE `demo`.`set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA SQL SECURITY INVOKER BEGIN SET output_value = input_value; END <delimiter>
 DELIMITER ;
 ALTER PROCEDURE `demo`.`set_value` COMMENT '
-SQLR_HASH:3ae29ef9c8ce990fde5bb83ec44d5d4467f9e25c1903298bd4c9b74bc2cd2592';
+SQLR_HASH:49fc4742cd910eee387d136c05e9af2589a0ee98e1772c9414fcfe047eb382d6';

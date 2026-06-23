@@ -2,8 +2,8 @@
   "name": "demo",
   "tables": null,
   "routines": [
-    "CREATE FUNCTION `demo`.`double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 2; END",
-    "CREATE PROCEDURE `demo`.`set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA SQL SECURITY INVOKER BEGIN SET output_value = input_value; END"
+    "CREATE FUNCTION `double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 2; END",
+    "CREATE PROCEDURE `set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA SQL SECURITY INVOKER BEGIN SET output_value = input_value; END"
   ],
   "users": null
 }

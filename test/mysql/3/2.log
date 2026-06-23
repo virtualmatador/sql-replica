@@ -2,7 +2,6 @@
 SET @r = 'Database "demo" exists.';
 SET @r = 'Table "owner" exist.';
 SET @r = 'Table "project" exist.';
-DROP VIEW `demo`.`project_account`;
 SET @r = 'No extra table.';
 RENAME TABLE `demo`.`account` to `demo`.`_sql_owner`;
 RENAME TABLE `demo`.`_sql_owner` to `demo`.`owner`;
@@ -25,11 +24,11 @@ SET @r = 'Table "owner" is ok.';
 SET @r = 'Table "project" is ok.';
 SET @r = 'No extra table.';
 ALTER TABLE `demo`.`project` ADD CONSTRAINT `fk_project_owner` FOREIGN KEY (`owner_id`) REFERENCES `demo`.`owner` (`owner_id`) ON UPDATE CASCADE ON DELETE CASCADE;
+DROP VIEW `demo`.`project_account`;
 -- pass 2
 SET @r = 'Database "demo" exists.';
 SET @r = 'Table "owner" exist.';
 SET @r = 'Table "project" exist.';
-SET @r = 'No extra view.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
 SET @r = 'No table rename needed.';
@@ -52,3 +51,4 @@ SET @r = 'Table "owner" is ok.';
 SET @r = 'Table "project" is ok.';
 SET @r = 'No extra table.';
 SET @r = 'Foreign key "fk_project_owner" is ok.';
+SET @r = 'No extra view.';

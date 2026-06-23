@@ -1,7 +1,6 @@
 -- pass 1
 SET @r = 'Database "demo" exists.';
 SET @r = 'Table "item" exist.';
-SET @r = 'No extra view.';
 RENAME TABLE `demo`.`extra_product` to `demo`.`_sql__drop_extra_product`;
 RENAME TABLE `demo`.`product` to `demo`.`_sql_item`;
 RENAME TABLE `demo`.`_sql_item` to `demo`.`item`;
@@ -17,7 +16,6 @@ DROP TABLE `demo`.`_sql__drop_extra_product`;
 -- pass 2
 SET @r = 'Database "demo" exists.';
 SET @r = 'Table "item" exist.';
-SET @r = 'No extra view.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
 SET @r = 'No table rename needed.';

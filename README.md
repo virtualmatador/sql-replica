@@ -3,7 +3,7 @@
 "Sqlr" is a tool to maintain database schema.
 
 The benefits of using "Sqlr":
-- Uses the simplest form of the input without requiring SQL language
+- Uses structured input for tables without requiring hand-written table DDL
 - Generates code without accessing the database server
 - Doesn't require maintaining any kind of history
 
@@ -19,7 +19,8 @@ and optional schema sections, and `Schema::replicate_sql()` generates the SQL.
 | --- | --- | --- | --- |
 | name | Yes | string | The database/schema name |
 | tables | No | array or null | The array of table objects |
-| routines | No | array or null | The array of routine objects |
+| views | No | array or null | The array of view SQL strings |
+| routines | No | array or null | The array of routine SQL strings |
 | users | No | array or null | The array of user objects |
 
 Example:
@@ -27,6 +28,7 @@ Example:
 {
   "name": "demo",
   "tables": null,
+  "views": null,
   "routines": null,
   "users": null
 }
@@ -64,7 +66,6 @@ A table is an object that has the following fields:
 | columns | Yes | array | The array of the column objects |
 | keys | No | array | The array of the key objects |
 | foreign-keys | No | array | The array of the foreign-key objects |
-| views | No | array | The array of the view objects |
 
 Example:
 ```json
@@ -77,8 +78,6 @@ Example:
     "keys": [
     ],
     "foreign-keys": [
-    ],
-    "views": [
     ]
 }
 ```
@@ -158,72 +157,29 @@ Example:
 }
 ```
 
-#### View
+## Views (optional)
 
-A view is an object that has the following fields:
-
-| Field Name | Required | Type | Description |
-| --- | --- | --- | --- |
-| name | Yes | string | The name of the view |
-| columns | Yes | array | The name of the columns joining the view |
-| joints | Yes | array | The array of the joint objects, joins of the view |
+The `views` section is an array of MySQL view SQL strings. Sqlr treats each
+view definition as one full SQL string.
 
 Example:
 ```json
-{
-    "name": "membership",
-    "columns": [
-        "id"
-    ],
-    "joints": [
-    ]
-}
+[
+]
 ```
 
-##### Joint
+### View
 
-A joint is an object that has the following fields:
-
-| Field Name | Required | Type | Description |
-| --- | --- | --- | --- |
-| table | Yes | string | The name of the table joining the view |
-| as | Yes | string | The alias for the table to be used in the view |
-| type | Yes | string | The type of the joint |
-| columns | Yes | array | The name of the columns of the table joining the view |
-| ons | Yes | array | The array of the relation objects, between this table and the rest of the view |
+A view is a string containing the full `CREATE VIEW` or
+`CREATE OR REPLACE VIEW` statement. Use an unqualified view name; sqlr adds the
+target database/schema name while generating SQL. Leading SQL comments are
+skipped when sqlr locates the view name.
 
 Example:
 ```json
-{
-    "table": "project",
-    "as": "prj",
-    "type": "inner",
-    "columns": [
-      "id"
-    ],
-    "ons": [
-    ]
-}
-```
-
-###### Relation
-
-A relation is an object that has the following fields:
-
-| Field Name | Required | Type | Description |
-| --- | --- | --- | --- |
-| foreign | Yes | string | The column used for comparison |
-| base | Yes | object | The table and the column to compare with |
-
-Example:
-```json
-{
-  "foreign": "project",
-  "base": {
-    "table": "project",
-    "column": "id",
-  }
-}
+[
+    "CREATE OR REPLACE VIEW `project_account` AS SELECT `project`.`id`, `project`.`name` FROM `project`"
+]
 ```
 
 ## Routines (optional)
@@ -242,18 +198,20 @@ Example:
 ### Routine
 
 A routine is a string containing the full `CREATE FUNCTION` or
-`CREATE PROCEDURE` statement.
+`CREATE PROCEDURE` statement. Use an unqualified routine name; sqlr adds the
+target database/schema name while generating SQL. Leading SQL comments are
+skipped when sqlr locates the routine type and name.
 
 Example:
 ```json
 [
-    "CREATE FUNCTION `demo`.`double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL BEGIN RETURN input_value * 2; END"
+    "CREATE FUNCTION `double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL BEGIN RETURN input_value * 2; END"
 ]
 ```
 
 ```json
 [
-    "CREATE PROCEDURE `demo`.`set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA BEGIN SET output_value = input_value; END"
+    "CREATE PROCEDURE `set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA BEGIN SET output_value = input_value; END"
 ]
 ```
 
@@ -296,7 +254,7 @@ A permission is an object that has the following fields:
 | Field Name | Required | Type | Description |
 | --- | --- | --- | --- |
 | type | Yes | string | The type of subject: `table`, `function`, or `procedure` |
-| subject | Yes | string | The name of the table, function, or procedure |
+| subject | Yes | string | The name of the table/view, function, or procedure |
 | operations | Yes | array | The array of the operations that user is allowed to do on the subject |
 
 Example permission for table:
