@@ -1,0 +1,55 @@
+{
+  "database-name": {
+    "reject": "\\'`"
+  },
+  "table-name": {
+    "reject": "\\'`"
+  },
+  "table-id": {
+    "reject": "\\'`"
+  },
+  "column-name": {
+    "reject": "\\'`"
+  },
+  "column-id": {
+    "reject": "\\'`"
+  },
+  "key-name": {
+    "reject": "\\'`"
+  },
+  "foreign-key-name": {
+    "reject": "\\'`"
+  },
+  "foreign-table-name": {
+    "reject": "\\'`"
+  },
+  "routine-name": {
+    "reject": "\\'`"
+  },
+  "user-name": {
+    "reject": "\\'`"
+  },
+  "permission-subject": {
+    "reject": "\\'`"
+  },
+  "view-name": {
+    "reject": "\\'`"
+  },
+  "sql-expression": {
+    "reject": "\\`"
+  },
+  "view-body": {
+    "reject": ";"
+  },
+  "mysql-column-type": {
+    "reject": "\\'`",
+    "lower-case": true,
+    "replace": [
+      {"from": "\"", "to": "'"}
+    ],
+    "values": [
+      {"from": "bool", "to": "tinyint(1)"},
+      {"from": "boolean", "to": "tinyint(1)"}
+    ]
+  }
+}

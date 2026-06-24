@@ -9,8 +9,9 @@ void Views::validate(const jsonio::json &views) {
     if (view["name"].get_string().empty() || body.empty()) {
       throw std::runtime_error("Publish MySQL: Bad View");
     }
-    Objects::sanitize(view["name"].get_string(), "\\'`");
-    Objects::sanitize(body, ";");
+    Objects::sanitize(view["name"].get_string(),
+                      Objects::SanitizeRule::ViewName);
+    Objects::sanitize(body, Objects::SanitizeRule::ViewBody);
   }
 }
 

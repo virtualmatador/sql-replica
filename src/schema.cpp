@@ -22,7 +22,7 @@ std::string Schema::replicate_sql() const {
   const bool include_users = !Objects::is_null(users);
 
   Context context{db_name, "_sql_", "_drop_", ""};
-  Objects::sanitize(context.db_name, "\\'`");
+  Objects::sanitize(context.db_name, Objects::SanitizeRule::DatabaseName);
 
   if (include_tables) {
     Tables::validate(tables, context.bad_prefix);

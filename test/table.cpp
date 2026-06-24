@@ -222,13 +222,38 @@ bool t07_default_drop_uses_state_before_clearing() {
          drop_default < clear_default;
 }
 
+bool t08_column_type_comparison_uses_mysql_schema_form() {
+  auto tables = read_json(R"json([
+    {
+      "name": "game",
+      "id": "GAME_TABLE",
+      "columns": [
+        {"id": "GAME_FUNDED", "name": "organizerFunded", "type": "boolean"},
+        {"id": "GAME_STATE", "name": "state", "type": "enum(\"invite\",\"done\")"}
+      ]
+    }
+  ])json");
+  auto empty = read_json("[]");
+  const auto sql =
+      Schema(schema(tables, empty, empty), false, false).replicate_sql();
+  return expect_contains(sql, "@old_type != 'tinyint(1)'", __FUNCTION__) &&
+         expect_contains(sql, "'type', 'tinyint(1)'", __FUNCTION__) &&
+         expect_contains(sql, "@old_type != 'enum(\\'invite\\',\\'done\\')'",
+                         __FUNCTION__) &&
+         expect_not_contains(sql, "@old_type != 'boolean'", __FUNCTION__) &&
+         expect_not_contains(sql, "'type', 'boolean'", __FUNCTION__) &&
+         expect_not_contains(sql, "@old_type != 'enum(\"invite\",\"done\")'",
+                             __FUNCTION__);
+}
+
 int main() {
   if (t01() && t02_rename_updates_dependents() &&
       t03_keys_are_applied_before_state_update() &&
       t04_dropped_foreign_key_releases_index_state() &&
       t05_marked_extra_tables_move_dependent_state() &&
       t06_extra_columns_stale_dependent_state() &&
-      t07_default_drop_uses_state_before_clearing() && true) {
+      t07_default_drop_uses_state_before_clearing() &&
+      t08_column_type_comparison_uses_mysql_schema_form() && true) {
     return 0;
   }
   return -1;

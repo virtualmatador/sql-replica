@@ -70,7 +70,8 @@ void Routines::validate(const jsonio::json &routines) {
       throw std::runtime_error("Publish MySQL: Bad Routine");
     }
     routine_type(routine);
-    Objects::sanitize(routine["name"].get_string(), "\\'`");
+    Objects::sanitize(routine["name"].get_string(),
+                      Objects::SanitizeRule::RoutineName);
   }
 }
 

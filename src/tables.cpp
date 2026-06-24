@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
-#include <string.h>
 #include <utility>
 
 namespace {
@@ -58,11 +57,12 @@ void Tables::validate(const jsonio::json &tables,
     Objects::validate_fields(
         table, {"id", "name", "engine", "columns", "keys", "foreign-keys"},
         "Table");
-    Objects::sanitize(table["name"].get_string(), "\\'`");
+    Objects::sanitize(table["name"].get_string(),
+                      Objects::SanitizeRule::TableName);
     if (table["name"].get_string().rfind(bad_prefix, 0) == 0) {
       throw std::runtime_error("Publish MySQL: Table Bad Prefix");
     }
-    Objects::sanitize(table["id"].get_string(), "\\'`");
+    Objects::sanitize(table["id"].get_string(), Objects::SanitizeRule::TableId);
     if (auto engine = table.get_object().find("engine");
         engine != table.get_object().end()) {
       validate_engine(engine->second.get_string());
@@ -74,17 +74,21 @@ void Tables::validate(const jsonio::json &tables,
          const auto &column : table["columns"].get_array()) {
       Objects::validate_fields(
           column, {"id", "name", "type", "auto", "null", "default"}, "Column");
-      Objects::sanitize(column["name"].get_string(), "\\'`");
+      Objects::sanitize(column["name"].get_string(),
+                        Objects::SanitizeRule::ColumnName);
       if (column["name"].get_string().rfind(bad_prefix, 0) == 0) {
         throw std::runtime_error("Publish MySQL: Column Bad Prefix");
       }
-      Objects::sanitize(column["type"].get_string(), "\\'`");
-      Objects::sanitize(column["id"].get_string(), "\\'`");
+      Objects::sanitize(column["type"].get_string(),
+                        Objects::SanitizeRule::MysqlColumnType);
+      Objects::sanitize(column["id"].get_string(),
+                        Objects::SanitizeRule::ColumnId);
       if (column["id"].get_string().empty()) {
         throw std::runtime_error("Publish MySQL: Column No Id");
       }
       if (auto default_value = column.at("default"); default_value) {
-        Objects::sanitize(default_value->get_string(), "\\`");
+        Objects::sanitize(default_value->get_string(),
+                          Objects::SanitizeRule::SqlExpression);
       }
       if (++column_ids[column["id"].get_string()] > 1) {
         throw std::runtime_error("Publish MySQL: Repeated Column Id");
@@ -98,9 +102,11 @@ void Tables::validate(const jsonio::json &tables,
           throw std::runtime_error("Publish MySQL: No Key Column");
         }
         for (const auto &clm : key["columns"].get_array()) {
-          Objects::sanitize(clm.get_string(), "\\'`");
+          Objects::sanitize(clm.get_string(),
+                            Objects::SanitizeRule::ColumnName);
         }
-        Objects::sanitize(key["name"].get_string(), "\\'`");
+        Objects::sanitize(key["name"].get_string(),
+                          Objects::SanitizeRule::KeyName);
         validate_key_type(key["type"].get_string());
         if (++index_names[key["name"].get_string()] > 1) {
           throw std::runtime_error("Publish MySQL: Repeated Key Name");
@@ -117,21 +123,25 @@ void Tables::validate(const jsonio::json &tables,
             foreign_key,
             {"name", "delete", "update", "columns", "table", "keys"},
             "ForeignKey");
-        Objects::sanitize(foreign_key["name"].get_string(), "\\'`");
+        Objects::sanitize(foreign_key["name"].get_string(),
+                          Objects::SanitizeRule::ForeignKeyName);
         validate_foreign_key_action(foreign_key["delete"].get_string());
         validate_foreign_key_action(foreign_key["update"].get_string());
-        Objects::sanitize(foreign_key["table"].get_string(), "\\'`");
+        Objects::sanitize(foreign_key["table"].get_string(),
+                          Objects::SanitizeRule::ForeignTableName);
         if (foreign_key["columns"].get_array().size() == 0) {
           throw std::runtime_error("Publish MySQL: No ForeignKey Column");
         }
         for (const auto &clm : foreign_key["columns"].get_array()) {
-          Objects::sanitize(clm.get_string(), "\\'`");
+          Objects::sanitize(clm.get_string(),
+                            Objects::SanitizeRule::ColumnName);
         }
         if (foreign_key["keys"].get_array().size() == 0) {
           throw std::runtime_error("Publish MySQL: No ForeignKey Key");
         }
         for (const auto &clm : foreign_key["keys"].get_array()) {
-          Objects::sanitize(clm.get_string(), "\\'`");
+          Objects::sanitize(clm.get_string(),
+                            Objects::SanitizeRule::ColumnName);
         }
       }
     }
@@ -714,7 +724,9 @@ set @_sql_columns = if(isnull(@old_column),
               column["id"].get_string() +
               R"(',
       'type', ')" +
-              column["type"].get_string() +
+              Objects::escape_sql_string(Objects::sanitize(
+                  column["type"].get_string(),
+                  Objects::SanitizeRule::MysqlColumnType)) +
               R"(',
       'default', )" +
               (default_value ? default_value->get_string() : "null") +
@@ -1315,7 +1327,10 @@ set @ordinal_change = if (@old_position != )" +
           R"(, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != ')" +
-          column["type"].get_string() + R"(')" +
+          Objects::escape_sql_string(Objects::sanitize(
+              column["type"].get_string(),
+              Objects::SanitizeRule::MysqlColumnType)) +
+          R"(')" +
           (default_value ? R"( or @old_default IS NULL or @old_default != )" +
                                default_value->get_string()
                          : "") +
@@ -1530,7 +1545,10 @@ set @_sql_columns = if(@column_object is null,
   json_set(
       @_sql_columns,
       concat(@column_object, '.type'), ')" +
-              column["type"].get_string() + R"(',
+              Objects::escape_sql_string(Objects::sanitize(
+                  column["type"].get_string(),
+                  Objects::SanitizeRule::MysqlColumnType)) +
+              R"(',
       concat(@column_object, '.default'), )" +
               (default_value
                    ? default_value->get_string()

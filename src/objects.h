@@ -8,8 +8,26 @@
 
 class Objects {
 public:
+  enum class SanitizeRule {
+    DatabaseName,
+    TableName,
+    TableId,
+    ColumnName,
+    ColumnId,
+    KeyName,
+    ForeignKeyName,
+    ForeignTableName,
+    RoutineName,
+    UserName,
+    PermissionSubject,
+    ViewName,
+    SqlExpression,
+    ViewBody,
+    MysqlColumnType
+  };
+
   static bool equals_ignore_case(const std::string &lhs, const char *rhs);
-  static void sanitize(const std::string &input, const char *bad_chars);
+  static std::string sanitize(const std::string &input, SanitizeRule rule);
   static void validate_fields(const jsonio::json &object,
                               std::initializer_list<const char *> allowed,
                               const char *kind);

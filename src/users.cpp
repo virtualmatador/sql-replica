@@ -35,11 +35,13 @@ Users::permission_operations(const std::string &type) {
 void Users::validate(const jsonio::json &users) {
   for (const auto &user : users.get_array()) {
     Objects::validate_fields(user, {"name", "permissions"}, "User");
-    Objects::sanitize(user["name"].get_string(), "\\'`");
+    Objects::sanitize(user["name"].get_string(),
+                      Objects::SanitizeRule::UserName);
     for (const auto &permission : user["permissions"].get_array()) {
       Objects::validate_fields(permission, {"type", "subject", "operations"},
                                "Permission");
-      Objects::sanitize(permission["subject"].get_string(), "\\'`");
+      Objects::sanitize(permission["subject"].get_string(),
+                        Objects::SanitizeRule::PermissionSubject);
       permission_type(permission);
     }
   }
