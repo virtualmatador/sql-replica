@@ -43,6 +43,21 @@ bool t02() {
          expect_contains(sql, "prepare stmt from @qry;", __FUNCTION__);
 }
 
+bool t03_use_database_reported_and_only_executed_outside_dry_run() {
+  auto empty = read_json("[]");
+  const auto dry_run_sql =
+      Schema(schema(empty, empty, empty), true, true).replicate_sql();
+  const auto execute_sql =
+      Schema(schema(empty, empty, empty), true, false).replicate_sql();
+
+  return expect_contains(dry_run_sql, "select 'USE `demo`;' as '';",
+                         __FUNCTION__) &&
+         expect_not_contains(dry_run_sql, "\nUSE `demo`;\n", __FUNCTION__) &&
+         expect_contains(execute_sql, "select 'USE `demo`;' as '';",
+                         __FUNCTION__) &&
+         expect_contains(execute_sql, "\nUSE `demo`;\n", __FUNCTION__);
+}
+
 bool t03_null_sections_skip_work() {
   auto null = read_json("null");
   const auto null_sql =
@@ -110,7 +125,9 @@ bool t04_empty_sections_reconcile_work() {
 }
 
 int main() {
-  if (t01() && t02() && t03_null_sections_skip_work() &&
+  if (t01() && t02() &&
+      t03_use_database_reported_and_only_executed_outside_dry_run() &&
+      t03_null_sections_skip_work() &&
       t04_empty_sections_reconcile_work() && true) {
     return 0;
   }

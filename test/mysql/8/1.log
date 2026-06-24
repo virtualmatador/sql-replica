@@ -1,5 +1,6 @@
 -- pass 1
 CREATE DATABASE `demo`;
+USE `demo`;
 CREATE TABLE `demo`.`_sql_ticket` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'TICKET_TABLE';
 SET @r = 'No extra table.';
 SET @r = 'All tables have prefix.';
@@ -15,6 +16,7 @@ SET @r = 'Table "ticket" is ok.';
 SET @r = 'No extra table.';
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "ticket" exist.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';

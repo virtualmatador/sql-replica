@@ -1,4 +1,5 @@
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 DROP PROCEDURE `demo`.`set_value`;
 DROP FUNCTION `demo`.`double_value`;
 DELIMITER <delimiter>

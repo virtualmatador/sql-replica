@@ -1,5 +1,6 @@
 -- pass 1
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "owner" exist.';
 SET @r = 'Table "project" exist.';
 SET @r = 'No extra table.';
@@ -27,6 +28,7 @@ ALTER TABLE `demo`.`project` ADD CONSTRAINT `fk_project_owner` FOREIGN KEY (`own
 DROP VIEW `demo`.`project_account`;
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "owner" exist.';
 SET @r = 'Table "project" exist.';
 SET @r = 'No extra table.';

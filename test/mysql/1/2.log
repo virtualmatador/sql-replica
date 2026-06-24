@@ -1,5 +1,6 @@
 -- pass 1
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "customer" exist.';
 SET @r = 'No extra table.';
 RENAME TABLE `demo`.`account` to `demo`.`_sql_customer`;
@@ -15,6 +16,7 @@ SET @r = 'Table "customer" is ok.';
 SET @r = 'No extra table.';
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "customer" exist.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';

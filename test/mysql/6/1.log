@@ -1,5 +1,6 @@
 -- pass 1
 CREATE DATABASE `demo`;
+USE `demo`;
 CREATE TABLE `demo`.`_sql_keep_me` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'KEEP_TABLE';
 CREATE TABLE `demo`.`_sql_remove_me` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'REMOVE_TABLE';
 SET @r = 'No extra table.';
@@ -24,6 +25,7 @@ SET @r = 'Table "remove_me" is ok.';
 SET @r = 'No extra table.';
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "keep_me" exist.';
 SET @r = 'Table "remove_me" exist.';
 SET @r = 'No extra table.';

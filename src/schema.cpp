@@ -65,6 +65,16 @@ set @qry = if (isnull(@old_db),
 );
   )";
   sql += context.exec;
+  if (report_) {
+    sql += R"(
+select 'USE `)" + context.db_name + R"(`;' as '';
+)";
+  }
+  if (!dry_run_) {
+    sql += R"(
+USE `)" + context.db_name + R"(`;
+)";
+  }
   if (include_tables) {
     sql += Tables::snapshot_schema_state(context.db_name);
   }

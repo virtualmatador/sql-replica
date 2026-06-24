@@ -1,5 +1,6 @@
 -- pass 1
 CREATE DATABASE `demo`;
+USE `demo`;
 CREATE TABLE `demo`.`_sql_account` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'ACCOUNT_TABLE';
 SET @r = 'No extra table.';
 SET @r = 'All tables have prefix.';
@@ -20,6 +21,7 @@ GRANT Select,Insert ON `demo`.`account` TO 'Alice';
 SET @r = 'No revoke permissions on account for Alice needed.';
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "account" exist.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';

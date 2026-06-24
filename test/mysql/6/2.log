@@ -1,4 +1,6 @@
 -- pass 1
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;

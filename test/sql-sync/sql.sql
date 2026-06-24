@@ -10,6 +10,8 @@ set @qry = if (isnull(@old_db),
   
 select @qry as '';
 
+select 'USE `sales`;' as '';
+
 set @_sql_tables = if(isnull(@old_db), json_array(), (
 select coalesce(json_arrayagg(json_object(
     'name', `name`,
@@ -7896,4 +7898,3 @@ set @_sql_permissions = json_array_append(@_sql_permissions, '$', json_object(
   'subject', 'active_project_count',
   'operations', 'Execute'
 ));
-

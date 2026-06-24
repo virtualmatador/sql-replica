@@ -1,5 +1,6 @@
 -- pass 1
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "item" exist.';
 RENAME TABLE `demo`.`extra_product` to `demo`.`_sql__drop_extra_product`;
 RENAME TABLE `demo`.`product` to `demo`.`_sql_item`;
@@ -15,6 +16,7 @@ SET @r = 'Table "item" is ok.';
 DROP TABLE `demo`.`_sql__drop_extra_product`;
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "item" exist.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';

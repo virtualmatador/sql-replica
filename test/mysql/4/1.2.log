@@ -1,4 +1,5 @@
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'No extra routine.';
 SET @r = 'Routine double_value is ok.';
 SET @r = 'Routine double_value is ok.';

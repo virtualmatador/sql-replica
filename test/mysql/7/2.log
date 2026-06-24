@@ -1,5 +1,6 @@
 -- pass 1
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "metric" exist.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
@@ -15,6 +16,7 @@ ALTER TABLE `demo`.`metric` ALTER COLUMN `amount` DROP DEFAULT;
 SET @r = 'No extra table.';
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "metric" exist.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';

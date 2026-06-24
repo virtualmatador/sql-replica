@@ -1,5 +1,6 @@
 -- pass 1
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "account" exist.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
@@ -20,6 +21,7 @@ GRANT Select ON `demo`.`account` TO 'Alice';
 REVOKE Insert ON `demo`.`account` FROM 'Alice';
 -- pass 2
 SET @r = 'Database "demo" exists.';
+USE `demo`;
 SET @r = 'Table "account" exist.';
 SET @r = 'No extra table.';
 SET @r = 'No table needs prefix.';
