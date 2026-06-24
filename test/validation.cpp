@@ -137,27 +137,27 @@ bool t07_bad_permission_type() {
 bool t08_bad_routine() {
   auto empty = read_json("[]");
   auto routines = read_json(R"([
-    "CREATE TRIGGER bad_trigger BEGIN END"
+    {"type": "TRIGGER", "name": "bad_trigger", "definition": "BEGIN END"}
   ])");
   return expect_throw(
       [&] { Schema(schema(empty, routines, empty), true, true).replicate_sql(); },
       __FUNCTION__);
 }
 
-bool t09_bad_routine_schema() {
+bool t09_bad_routine_definition() {
   auto empty = read_json("[]");
   auto routines = read_json(R"([
-    "CREATE PROCEDURE other_db.set_value() BEGIN SELECT 1; END"
+    {"type": "PROCEDURE", "name": "set_value", "definition": ""}
   ])");
   return expect_throw(
       [&] { Schema(schema(empty, routines, empty), true, true).replicate_sql(); },
       __FUNCTION__);
 }
 
-bool t10_bad_view_schema() {
+bool t10_bad_view_body() {
   auto empty = read_json("[]");
   auto views = read_json(R"([
-    "CREATE OR REPLACE VIEW other_db.account_view AS SELECT 1"
+    {"name": "account_view", "body": ""}
   ])");
   return expect_throw(
       [&] {
@@ -167,13 +167,13 @@ bool t10_bad_view_schema() {
       __FUNCTION__);
 }
 
-bool t11_skip_comments() {
+bool t11_generate_prefixes() {
   auto empty = read_json("[]");
   auto routines = read_json(R"([
-    "/* FUNCTION wrong_name */ CREATE PROCEDURE set_value() BEGIN SELECT 1; END"
+    {"type": "PROCEDURE", "name": "set_value", "definition": "() BEGIN SELECT 1; END"}
   ])");
   auto views = read_json(R"([
-    "-- VIEW wrong_name\nCREATE OR REPLACE VIEW account_view AS SELECT 1"
+    {"name": "account_view", "body": "SELECT 1"}
   ])");
 
   const auto routine_sql =
@@ -194,8 +194,8 @@ int main() {
   if (t01_bad_db_name() && t02_bad_engine() && t03_bad_key_type() &&
       t04_bad_foreign_key_action() && t05_unknown_table_field() &&
       t06_bad_user_subject() && t07_bad_permission_type() &&
-      t08_bad_routine() && t09_bad_routine_schema() &&
-      t10_bad_view_schema() && t11_skip_comments() && true) {
+      t08_bad_routine() && t09_bad_routine_definition() &&
+      t10_bad_view_body() && t11_generate_prefixes() && true) {
     return 0;
   }
   return -1;

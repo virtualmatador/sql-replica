@@ -37,7 +37,10 @@
     }
   ],
   "views": [
-    "CREATE OR REPLACE VIEW `project_account` AS SELECT `project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id`;"
+    {
+      "name": "project_account",
+      "body": "SELECT `project`.`id`, `project`.`name`, `demo`.`acct`.`name` AS `account_name` FROM `demo`.`project` inner join `demo`.`account` AS `acct` ON `demo`.`project`.`account_id` = `demo`.`acct`.`id`;"
+    }
   ],
   "users": null
 }

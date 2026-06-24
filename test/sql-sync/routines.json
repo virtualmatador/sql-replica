@@ -1,0 +1,12 @@
+[
+  {
+    "type": "FUNCTION",
+    "name": "active_project_count",
+    "definition": "() RETURNS int DETERMINISTIC READS SQL DATA BEGIN RETURN (SELECT COUNT(*) FROM project WHERE archived = 0); END"
+  },
+  {
+    "type": "PROCEDURE",
+    "name": "archive_project",
+    "definition": "(IN `project_id` int unsigned) MODIFIES SQL DATA SQL SECURITY INVOKER BEGIN UPDATE project SET archived = 1 WHERE id = project_id; END"
+  }
+]

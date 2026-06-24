@@ -2,7 +2,11 @@
   "name": "demo",
   "tables": null,
   "routines": [
-    "CREATE FUNCTION `double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 3; END"
+    {
+      "type": "FUNCTION",
+      "name": "double_value",
+      "definition": "(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 3; END"
+    }
   ],
   "users": null
 }

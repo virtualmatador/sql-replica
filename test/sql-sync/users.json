@@ -1,0 +1,51 @@
+[
+  {
+    "name": "alice",
+    "permissions": [
+      {
+        "subject": "project",
+        "operations": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "type": "table"
+      },
+      {
+        "subject": "user",
+        "operations": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "type": "table"
+      },
+      {
+        "subject": "member",
+        "operations": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "type": "table"
+      },
+      {
+        "subject": "project_account",
+        "operations": [
+          "SELECT"
+        ],
+        "type": "table"
+      },
+      {
+        "type": "function",
+        "subject": "active_project_count",
+        "operations": [
+          "EXECUTE"
+        ]
+      }
+    ]
+  }
+]

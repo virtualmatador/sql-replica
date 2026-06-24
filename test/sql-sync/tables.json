@@ -1,0 +1,184 @@
+[
+  {
+    "name": "user",
+    "id": "93B099B08D144B40BCC918FA24831669",
+    "columns": [
+      {
+        "name": "id",
+        "id": "76AC03C95026487AB55A590C48FE4C8F",
+        "type": "int unsigned",
+        "auto": true
+      },
+      {
+        "name": "email",
+        "id": "9B1B7A7BC7CF49B49A45E48E55B02669",
+        "type": "varchar(255)",
+        "null": true
+      },
+      {
+        "name": "password",
+        "id": "410FE4351CD34E61AF4DAFE2B7AB7FE4",
+        "type": "varchar(255)"
+      }
+    ],
+    "keys": [
+      {
+        "name": "PRIMARY",
+        "type": "primary key",
+        "columns": [
+          "id"
+        ]
+      },
+      {
+        "type": "unique index",
+        "name": "unique_email",
+        "columns": [
+          "email"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "project",
+    "id": "3D9C2B4ED6BA4AE39D3333FC5BBCC1FF",
+    "columns": [
+      {
+        "name": "id",
+        "id": "7EA682D7A35E4398A7C782C5F177F4D8",
+        "type": "int unsigned",
+        "auto": true
+      },
+      {
+        "name": "name",
+        "id": "C0D24606E108403D92397A3C0AEE219E",
+        "type": "varchar(255)"
+      },
+      {
+        "name": "summary",
+        "id": "0899EAFFFE7A41C7A9876DDDE0E01373",
+        "type": "varchar(255)",
+        "default": "\"\""
+      },
+      {
+        "name": "stage",
+        "id": "7E228CCA41014B51A73A444EEE34AD92",
+        "type": "int unsigned"
+      },
+      {
+        "name": "round",
+        "id": "16380EA4B54B4E8BB3CF78F36BC51AA2",
+        "type": "int unsigned"
+      },
+      {
+        "name": "archived",
+        "id": "ECF2AAA32B1A455595F7AF087089C005",
+        "type": "tinyint(1)"
+      }
+    ],
+    "keys": [
+      {
+        "name": "PRIMARY",
+        "type": "primary key",
+        "columns": [
+          "id"
+        ]
+      },
+      {
+        "name": "unique_name",
+        "type": "unique index",
+        "columns": [
+          "name"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "member",
+    "id": "FC94A0BB4E9B422ABC399BBF79E6AC43",
+    "columns": [
+      {
+        "name": "id",
+        "id": "197EF5B6132D4FC5A284EC950999BFD4",
+        "type": "int unsigned",
+        "auto": true
+      },
+      {
+        "name": "project",
+        "id": "4426A25349774BE6A296440E10CD42BB",
+        "type": "int unsigned"
+      },
+      {
+        "name": "user",
+        "id": "0FB8B46DDF0348FBB5459592689E71C8",
+        "type": "int unsigned",
+        "null": true
+      },
+      {
+        "name": "admin",
+        "id": "A6643F4E00B24616A21CB88193ABDAE8",
+        "type": "tinyint(1)"
+      },
+      {
+        "name": "nickname",
+        "id": "F27DEAD22DBB4256BA9B0B04147411EE",
+        "type": "varchar(50)"
+      },
+      {
+        "name": "pin",
+        "id": "B278231268FA4DBF8EF910285AA64776",
+        "type": "int unsigned"
+      }
+    ],
+    "keys": [
+      {
+        "name": "PRIMARY",
+        "type": "primary key",
+        "columns": [
+          "id"
+        ]
+      },
+      {
+        "name": "unique_member",
+        "type": "unique index",
+        "columns": [
+          "project",
+          "user"
+        ]
+      },
+      {
+        "name": "unique_name",
+        "type": "unique index",
+        "columns": [
+          "project",
+          "nickname"
+        ]
+      }
+    ],
+    "foreign-keys": [
+      {
+        "name": "fk_member_project",
+        "delete": "RESTRICT",
+        "update": "RESTRICT",
+        "columns": [
+          "project"
+        ],
+        "table": "project",
+        "keys": [
+          "id"
+        ]
+      },
+      {
+        "name": "fk_member_user",
+        "delete": "RESTRICT",
+        "update": "RESTRICT",
+        "columns": [
+          "user"
+        ],
+        "table": "user",
+        "keys": [
+          "id"
+        ]
+      }
+    ]
+  }
+]

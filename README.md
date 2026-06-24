@@ -19,8 +19,8 @@ and optional schema sections, and `Schema::replicate_sql()` generates the SQL.
 | --- | --- | --- | --- |
 | name | Yes | string | The database/schema name |
 | tables | No | array or null | The array of table objects |
-| views | No | array or null | The array of view SQL strings |
-| routines | No | array or null | The array of routine SQL strings |
+| views | No | array or null | The array of view objects |
+| routines | No | array or null | The array of routine objects |
 | users | No | array or null | The array of user objects |
 
 Example:
@@ -159,8 +159,8 @@ Example:
 
 ## Views (optional)
 
-The `views` section is an array of MySQL view SQL strings. Sqlr treats each
-view definition as one full SQL string.
+The `views` section is an array of MySQL view definitions. Sqlr expects each
+view to provide its name and body only.
 
 Example:
 ```json
@@ -170,24 +170,25 @@ Example:
 
 ### View
 
-A view is a string containing the full `CREATE VIEW` or
-`CREATE OR REPLACE VIEW` statement. Use an unqualified view name; sqlr adds the
-target database/schema name while generating SQL. Leading SQL comments are
-skipped when sqlr locates the view name.
+A view is an object containing the view `name` and the SQL `body` after `AS`.
+Sqlr adds `CREATE OR REPLACE VIEW`, qualifies the view name with the target
+database/schema, and appends `AS` while generating SQL.
 
 Example:
 ```json
 [
-    "CREATE OR REPLACE VIEW `project_account` AS SELECT `project`.`id`, `project`.`name` FROM `project`"
+    {
+        "name": "project_account",
+        "body": "SELECT `project`.`id`, `project`.`name` FROM `project`"
+    }
 ]
 ```
 
 ## Routines (optional)
 
-The `routines` section is an array of MySQL function and procedure SQL strings.
-Sqlr treats each routine definition as one full SQL string and does not parse
-parameters, return types, characteristics, or routine type into separate input
-fields.
+The `routines` section is an array of MySQL function and procedure definitions.
+Sqlr expects each routine to provide its type, name, and the rest of its
+definition after the name.
 
 Example:
 ```json
@@ -197,21 +198,30 @@ Example:
 
 ### Routine
 
-A routine is a string containing the full `CREATE FUNCTION` or
-`CREATE PROCEDURE` statement. Use an unqualified routine name; sqlr adds the
-target database/schema name while generating SQL. Leading SQL comments are
-skipped when sqlr locates the routine type and name.
+A routine is an object containing `type`, `name`, and `definition`. `type` must
+be `FUNCTION` or `PROCEDURE`. `definition` starts immediately after the routine
+name, usually with the parameter list. Sqlr adds the `CREATE FUNCTION` or
+`CREATE PROCEDURE` prefix and qualifies the name with the target
+database/schema while generating SQL.
 
 Example:
 ```json
 [
-    "CREATE FUNCTION `double_value`(`input_value` int) RETURNS int DETERMINISTIC NO SQL BEGIN RETURN input_value * 2; END"
+    {
+        "type": "FUNCTION",
+        "name": "double_value",
+        "definition": "(`input_value` int) RETURNS int DETERMINISTIC NO SQL BEGIN RETURN input_value * 2; END"
+    }
 ]
 ```
 
 ```json
 [
-    "CREATE PROCEDURE `set_value`(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA BEGIN SET output_value = input_value; END"
+    {
+        "type": "PROCEDURE",
+        "name": "set_value",
+        "definition": "(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA BEGIN SET output_value = input_value; END"
+    }
 ]
 ```
 

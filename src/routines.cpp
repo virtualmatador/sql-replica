@@ -6,151 +6,13 @@
 #include <iomanip>
 #include <openssl/sha.h>
 #include <sstream>
-#include <string.h>
 
 namespace {
-bool is_word_char(const char c) {
-  return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
-}
-
-bool is_quoted_text(const std::string &text, std::size_t pos) {
-  const auto quote = text[pos++];
-  while (pos < text.size()) {
-    if (text[pos] == '\\' && pos + 1 < text.size()) {
-      pos += 2;
-    } else if (text[pos++] == quote) {
-      return true;
-    }
-  }
-  return false;
-}
-
-void skip_quoted_text(const std::string &text, std::size_t &pos) {
-  const auto quote = text[pos++];
-  while (pos < text.size()) {
-    if (text[pos] == '\\' && pos + 1 < text.size()) {
-      pos += 2;
-    } else if (text[pos++] == quote) {
-      return;
-    }
-  }
-}
-
-bool skip_comment(const std::string &text, std::size_t &pos) {
-  if (text.compare(pos, 2, "/*") == 0) {
-    const auto end = text.find("*/", pos + 2);
-    pos = end == std::string::npos ? text.size() : end + 2;
-    return true;
-  }
-  if (text.compare(pos, 2, "--") == 0 ||
-      text.compare(pos, 1, "#") == 0) {
-    const auto end = text.find('\n', pos + 1);
-    pos = end == std::string::npos ? text.size() : end + 1;
-    return true;
-  }
-  return false;
-}
-
 std::string upper_string(std::string value) {
   for (auto &c : value) {
     c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
   }
   return value;
-}
-
-std::size_t find_keyword(const std::string &text, const char *keyword) {
-  const auto upper = upper_string(text);
-  const auto needle = upper_string(keyword);
-  for (std::size_t pos = 0; pos < upper.size();) {
-    if (skip_comment(upper, pos)) {
-      continue;
-    }
-    if ((upper[pos] == '\'' || upper[pos] == '"') &&
-        is_quoted_text(upper, pos)) {
-      skip_quoted_text(upper, pos);
-      continue;
-    }
-    if (upper.compare(pos, needle.size(), needle) != 0) {
-      ++pos;
-      continue;
-    }
-    const bool left_ok = pos == 0 || !is_word_char(upper[pos - 1]);
-    const auto end = pos + needle.size();
-    const bool right_ok = end == upper.size() || !is_word_char(upper[end]);
-    if (left_ok && right_ok) {
-      return pos;
-    }
-    ++pos;
-  }
-  return std::string::npos;
-}
-
-void skip_spaces(const std::string &text, std::size_t &pos) {
-  while (pos < text.size() &&
-         std::isspace(static_cast<unsigned char>(text[pos]))) {
-    ++pos;
-  }
-}
-
-std::string read_identifier(const std::string &text, std::size_t &pos) {
-  skip_spaces(text, pos);
-  if (pos >= text.size()) {
-    return "";
-  }
-  if (text[pos] == '`') {
-    ++pos;
-    std::string result;
-    while (pos < text.size()) {
-      if (text[pos] == '`') {
-        ++pos;
-        return result;
-      }
-      result += text[pos++];
-    }
-    return "";
-  }
-
-  std::string result;
-  while (pos < text.size()) {
-    const auto c = text[pos];
-    if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '$') {
-      break;
-    }
-    result += c;
-    ++pos;
-  }
-  return result;
-}
-
-std::size_t routine_name_position(const std::string &routine) {
-  auto pos = find_keyword(routine, "PROCEDURE");
-  auto function_pos = find_keyword(routine, "FUNCTION");
-  if (function_pos != std::string::npos &&
-      (pos == std::string::npos || function_pos < pos)) {
-    pos = function_pos + strlen("FUNCTION");
-  } else if (pos != std::string::npos) {
-    pos += strlen("PROCEDURE");
-  }
-  if (pos == std::string::npos) {
-    return std::string::npos;
-  }
-  skip_spaces(routine, pos);
-  return pos;
-}
-
-std::string qualify_routine_sql(const std::string &routine,
-                                const std::string &db_name) {
-  auto pos = routine_name_position(routine);
-  if (pos == std::string::npos) {
-    return routine;
-  }
-  const auto name_start = pos;
-  const auto name = read_identifier(routine, pos);
-  if (name.empty()) {
-    return routine;
-  }
-  return routine.substr(0, name_start) + "`" + db_name + "`.`" + name + "`" +
-         routine.substr(pos);
 }
 
 std::string sha256(const std::string &input) {
@@ -164,15 +26,51 @@ std::string sha256(const std::string &input) {
   }
   return stream.str();
 }
+
+std::string routine_delimiter_for(const std::string &routine,
+                                  const std::string &routine_hash) {
+  auto hash = routine_hash;
+  for (std::size_t counter = 0;; ++counter) {
+    const auto delimiter = "d" + hash.substr(0, 13);
+    if (routine.find(delimiter) == std::string::npos) {
+      return delimiter;
+    }
+    hash = sha256(routine + std::to_string(counter));
+  }
+}
+
+std::string routine_type(const jsonio::json &routine) {
+  const auto type = upper_string(routine["type"].get_string());
+  if (type != "FUNCTION" && type != "PROCEDURE") {
+    throw std::runtime_error("Publish MySQL: Bad Routine Type");
+  }
+  return type;
+}
+
+std::string routine_sql(const jsonio::json &routine) {
+  return "CREATE " + routine_type(routine) + " `" +
+         routine["name"].get_string() + "`" +
+         routine["definition"].get_string();
+}
+
+std::string qualified_routine_sql(const jsonio::json &routine,
+                                  const std::string &db_name) {
+  return "CREATE " + routine_type(routine) + " `" + db_name + "`.`" +
+         routine["name"].get_string() + "`" +
+         routine["definition"].get_string();
+}
 } // namespace
 
 void Routines::validate(const jsonio::json &routines) {
   for (const auto &routine : routines.get_array()) {
-    const auto &[type, name] = routine_type_and_name(routine.get_string());
-    if (type.empty() || name.empty()) {
+    Objects::validate_fields(routine, {"type", "name", "definition"},
+                             "Routine");
+    if (routine["name"].get_string().empty() ||
+        routine["definition"].get_string().empty()) {
       throw std::runtime_error("Publish MySQL: Bad Routine");
     }
-    Objects::sanitize(name, "\\'`");
+    routine_type(routine);
+    Objects::sanitize(routine["name"].get_string(), "\\'`");
   }
 }
 
@@ -190,39 +88,13 @@ std::string Routines::generate() {
   return sql_;
 }
 
-std::pair<std::string, std::string>
-Routines::routine_type_and_name(const std::string &routine) {
-  auto type = std::string{"PROCEDURE"};
-  auto pos = find_keyword(routine, "PROCEDURE");
-  auto function_pos = find_keyword(routine, "FUNCTION");
-  if (function_pos != std::string::npos &&
-      (pos == std::string::npos || function_pos < pos)) {
-    type = "FUNCTION";
-    pos = function_pos;
-  }
-  if (pos == std::string::npos) {
-    return {"", ""};
-  }
-
-  pos += type.size();
-  auto first = read_identifier(routine, pos);
-  skip_spaces(routine, pos);
-  if (pos < routine.size() && routine[pos] == '.') {
-    ++pos;
-    const auto second = read_identifier(routine, pos);
-    if (!second.empty()) {
-      return {"", ""};
-    }
-  }
-  return {type, first};
-}
-
 void Routines::remove_extra_routines() {
   sql_ += R"(
 set @all_routines = '';
 )";
   for (const auto &routine : routines_.get_array()) {
-    const auto &[type, name] = routine_type_and_name(routine.get_string());
+    const auto type = routine_type(routine);
+    const auto &name = routine["name"].get_string();
     sql_ += R"(
 set @all_routines = concat(@all_routines, '{)" +
             type + ":" + name + R"(}');
@@ -265,18 +137,18 @@ set @_sql_routines = (
 }
 
 void Routines::apply_routines() {
-  if (routines_.get_array().size() != 0) {
-    sql_ += R"(
-set @routine_delimiter = concat('d', left(replace(uuid(), '-', ''), 13));
-)";
-  }
   for (const auto &routine : routines_.get_array()) {
-    const auto routine_sql = routine.get_string();
-    const auto &[type, name] = routine_type_and_name(routine_sql);
+    const auto type = routine_type(routine);
+    const auto &name = routine["name"].get_string();
+    const auto routine_sql = ::routine_sql(routine);
+    const auto qualified_routine =
+        qualified_routine_sql(routine, context_.db_name);
     const auto routine_hash = sha256(routine_sql);
-    const auto escaped_qualified_routine =
-        Objects::escape_sql_string(qualify_routine_sql(routine_sql,
-                                                       context_.db_name));
+    const auto routine_delimiter =
+        routine_delimiter_for(qualified_routine, routine_hash);
+    const auto create_routine_query = Objects::escape_sql_string(
+        "DELIMITER " + routine_delimiter + "\n" + qualified_routine + " " +
+        routine_delimiter + "\nDELIMITER ;");
     sql_ += R"(
 set @old_comment = null;
 set @routine_hash = ')" +
@@ -337,9 +209,7 @@ set @_sql_routines = if(@routine_changed,
 )";
     sql_ += R"(
 set @qry = if (@routine_changed,
-  concat('DELIMITER ', @routine_delimiter, '\n', ')" +
-            escaped_qualified_routine +
-            R"( ', @routine_delimiter, '\n', 'DELIMITER ;')
+  ')" + create_routine_query + R"('
 ,
   'SET @r = \'Routine )" +
             name + R"( is ok.\';'

@@ -123,9 +123,8 @@ select `name` into @old_user from )" +
 where `name` = ')" +
             user["name"].get_string() + R"(';
 set @qry = if (isnull(@old_user),
-  concat('CREATE USER \')" +
-            user["name"].get_string() +
-            R"(\' ACCOUNT LOCK;')
+  'CREATE USER \')" +
+            user["name"].get_string() + R"(\' ACCOUNT LOCK;'
 ,
   'SET @r = \'User ")" +
             user["name"].get_string() + R"(" exists.\';'

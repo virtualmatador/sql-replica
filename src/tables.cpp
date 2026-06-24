@@ -1651,6 +1651,20 @@ void Tables::create_foreign_keys() {
   for (const auto &table : tables_.get_array()) {
     if (auto foreign_keys = table.at("foreign-keys"); foreign_keys) {
       for (const auto &key : foreign_keys->get_array()) {
+        const auto create_query =
+            "ALTER TABLE `" + context_.db_name + "`.`" +
+            table["name"].get_string() + "` ADD CONSTRAINT `" +
+            key["name"].get_string() + "` FOREIGN KEY (" +
+            fk_flatten_columns_[table["name"].get_string()]
+                               [key["name"].get_string()]
+                                   .first +
+            ") REFERENCES `" + context_.db_name + "`.`" +
+            key["table"].get_string() + "` (" +
+            fk_flatten_columns_[table["name"].get_string()]
+                               [key["name"].get_string()]
+                                   .second +
+            ") ON UPDATE " + key["update"].get_string() + " ON DELETE " +
+            key["delete"].get_string() + ";";
         sql_ += R"(
 set @old_constraint = null;
 set @old_table = null;
@@ -1665,23 +1679,8 @@ where
                 table["name"].get_string() + R"(' and
   `name` = ')" + key["name"].get_string() +
                 R"(';
-set @create_query = if (isnull(@old_constraint),
-  concat('ALTER TABLE `)" +
-                context_.db_name + R"(`.`)" + table["name"].get_string() +
-                R"(` ADD CONSTRAINT `)" + key["name"].get_string() +
-                R"(` FOREIGN KEY ()" +
-                fk_flatten_columns_[table["name"].get_string()]
-                                   [key["name"].get_string()]
-                                       .first +
-                R"() REFERENCES `)" + context_.db_name + R"(`.`)" +
-                key["table"].get_string() + R"(` ()" +
-                fk_flatten_columns_[table["name"].get_string()]
-                                   [key["name"].get_string()]
-                                       .second +
-                R"() ON UPDATE )" + key["update"].get_string() +
-                R"( ON DELETE )" + key["delete"].get_string() + R"(;')
-  , '');
-set @qry = if (@create_query != '', @create_query,
+set @qry = if (isnull(@old_constraint),
+  ')" + create_query + R"(',
   'SET @r = \'Foreign key ")" +
                 key["name"].get_string() + R"(" is ok.\';');
 )";

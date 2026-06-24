@@ -2,7 +2,6 @@
 #define ROUTINES_H
 
 #include <string>
-#include <utility>
 
 #include <json.hpp>
 
@@ -21,9 +20,6 @@ private:
   std::string generate();
   void remove_extra_routines();
   void apply_routines();
-
-  static std::pair<std::string, std::string>
-  routine_type_and_name(const std::string &routine);
 
   const jsonio::json &routines_;
   const Context &context_;

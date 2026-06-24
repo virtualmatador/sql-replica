@@ -1,0 +1,6 @@
+[
+  {
+    "name": "project_account",
+    "body": "SELECT `project`.`id`, `project`.`name`, `user`.`email` FROM `project` JOIN `member` ON `member`.`project` = `project`.`id` JOIN `user` ON `user`.`id` = `member`.`user`"
+  }
+]
