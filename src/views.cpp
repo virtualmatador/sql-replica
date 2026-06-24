@@ -5,11 +5,12 @@
 void Views::validate(const jsonio::json &views) {
   for (const auto &view : views.get_array()) {
     Objects::validate_fields(view, {"name", "body"}, "View");
-    if (view["name"].get_string().empty() ||
-        view["body"].get_string().empty()) {
+    const auto &body = view["body"].get_string();
+    if (view["name"].get_string().empty() || body.empty()) {
       throw std::runtime_error("Publish MySQL: Bad View");
     }
     Objects::sanitize(view["name"].get_string(), "\\'`");
+    Objects::sanitize(body, ";");
   }
 }
 
@@ -94,7 +95,7 @@ void Views::create_views() {
     const auto &view_name = view["name"].get_string();
     const auto view_sql = "CREATE OR REPLACE VIEW `" + context_.db_name +
                           "`.`" + view_name + "` AS " +
-                          view["body"].get_string();
+                          view["body"].get_string() + ";";
     const auto escaped_view = Objects::escape_sql_string(view_sql);
     sql_ += R"(
 set @qry = ')" +

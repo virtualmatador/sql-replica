@@ -167,7 +167,20 @@ bool t10_bad_view_body() {
       __FUNCTION__);
 }
 
-bool t11_generate_prefixes() {
+bool t11_bad_view_body_semicolon() {
+  auto empty = read_json("[]");
+  auto views = read_json(R"([
+    {"name": "account_view", "body": "SELECT 1;"}
+  ])");
+  return expect_throw(
+      [&] {
+        Schema(schema("demo", empty, views, empty, empty), true, true)
+            .replicate_sql();
+      },
+      __FUNCTION__);
+}
+
+bool t12_generate_prefixes() {
   auto empty = read_json("[]");
   auto routines = read_json(R"([
     {"type": "PROCEDURE", "name": "set_value", "definition": "() BEGIN SELECT 1; END"}
@@ -195,7 +208,8 @@ int main() {
       t04_bad_foreign_key_action() && t05_unknown_table_field() &&
       t06_bad_user_subject() && t07_bad_permission_type() &&
       t08_bad_routine() && t09_bad_routine_definition() &&
-      t10_bad_view_body() && t11_generate_prefixes() && true) {
+      t10_bad_view_body() && t11_bad_view_body_semicolon() &&
+      t12_generate_prefixes() && true) {
     return 0;
   }
   return -1;

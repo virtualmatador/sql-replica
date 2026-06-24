@@ -7220,7 +7220,7 @@ set @_sql_views = (
   ) as `_sql_ordered_views`
 );
 
-set @qry = 'CREATE OR REPLACE VIEW `sales`.`project_account` AS SELECT `project`.`id`, `project`.`name`, `user`.`email` FROM `project` JOIN `member` ON `member`.`project` = `project`.`id` JOIN `user` ON `user`.`id` = `member`.`user`';
+set @qry = 'CREATE OR REPLACE VIEW `sales`.`project_account` AS SELECT `project`.`id`, `project`.`name`, `user`.`email` FROM `project` JOIN `member` ON `member`.`project` = `project`.`id` JOIN `user` ON `user`.`id` = `member`.`user`;';
 
 select @qry as '';
 

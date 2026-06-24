@@ -171,8 +171,10 @@ Example:
 ### View
 
 A view is an object containing the view `name` and the SQL `body` after `AS`.
-Sqlr adds `CREATE OR REPLACE VIEW`, qualifies the view name with the target
-database/schema, and appends `AS` while generating SQL.
+Put the `SELECT` command in `body` without a trailing semicolon. Sqlr adds
+`CREATE OR REPLACE VIEW`, qualifies the view name with the target
+database/schema, appends `AS`, and terminates the generated view statement with
+a semicolon.
 
 Example:
 ```json
