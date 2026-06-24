@@ -10,7 +10,7 @@ add_library("sqlr" STATIC
 )
 set_property(TARGET "sqlr" PROPERTY CXX_STANDARD 20)
 target_include_directories("sqlr" INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_compile_definitions("sqlr" PRIVATE
-    SQLR_SANITIZE_RULES="${CMAKE_CURRENT_SOURCE_DIR}/sanitize_rules.json"
+target_compile_options("sqlr" PRIVATE
+    "--embed-dir=${CMAKE_CURRENT_SOURCE_DIR}"
 )
 target_link_libraries("sqlr" PUBLIC "jsonio" OpenSSL::Crypto)

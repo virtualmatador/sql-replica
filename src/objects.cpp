@@ -2,18 +2,19 @@
 
 #include <algorithm>
 #include <cctype>
-#include <fstream>
 #include <map>
+#include <sstream>
 #include <stdexcept>
 #include <string.h>
 #include <utility>
 #include <vector>
 
-#ifndef SQLR_SANITIZE_RULES
-#define SQLR_SANITIZE_RULES "sanitize_rules.json"
-#endif
-
 namespace {
+
+const char sanitize_rules_json[] = {
+#embed "sanitize_rules.json"
+    ,
+    '\0'};
 
 struct Replacement {
   std::string from;
@@ -76,12 +77,8 @@ std::vector<Replacement> read_replacements(const jsonio::json &rule,
 }
 
 std::map<std::string, SanitizeRuleConfig> read_sanitize_rules() {
-  std::ifstream stream{SQLR_SANITIZE_RULES};
-  if (!stream) {
-    throw std::runtime_error("Publish MySQL: Missing Sanitize Rules");
-  }
-
   jsonio::json rules_json;
+  std::istringstream stream{sanitize_rules_json};
   stream >> rules_json;
 
   std::map<std::string, SanitizeRuleConfig> rules;
