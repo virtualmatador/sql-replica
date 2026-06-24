@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 
+#include <objects.h>
 #include <schema.h>
 
 #include "test_util.h"
@@ -203,13 +204,28 @@ bool t12_generate_prefixes() {
                          __FUNCTION__);
 }
 
+bool t13_sanitize_rules_are_loaded() {
+  const auto boolean_type =
+      Objects::sanitize("BOOLEAN", Objects::SanitizeRule::MysqlColumnType);
+  const auto enum_type = Objects::sanitize(
+      R"(enum("invite","done"))", Objects::SanitizeRule::MysqlColumnType);
+
+  return boolean_type == "tinyint(1)" &&
+         enum_type == "enum('invite','done')" &&
+         expect_throw(
+             [] {
+               Objects::sanitize("bad`name", Objects::SanitizeRule::TableName);
+             },
+             __FUNCTION__);
+}
+
 int main() {
   if (t01_bad_db_name() && t02_bad_engine() && t03_bad_key_type() &&
       t04_bad_foreign_key_action() && t05_unknown_table_field() &&
       t06_bad_user_subject() && t07_bad_permission_type() &&
       t08_bad_routine() && t09_bad_routine_definition() &&
       t10_bad_view_body() && t11_bad_view_body_semicolon() &&
-      t12_generate_prefixes() && true) {
+      t12_generate_prefixes() && t13_sanitize_rules_are_loaded() && true) {
     return 0;
   }
   return -1;
