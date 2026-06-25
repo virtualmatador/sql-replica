@@ -13,3 +13,8 @@ CREATE PROCEDURE `demo`.`set_value`(IN `input_value` int, OUT `output_value` int
 DELIMITER ;
 ALTER PROCEDURE `demo`.`set_value` COMMENT '
 SQLR_HASH:49fc4742cd910eee387d136c05e9af2589a0ee98e1772c9414fcfe047eb382d6';
+SET @r = 'No unlisted user permissions.';
+CREATE USER 'Runner' ACCOUNT LOCK;
+SET @r = 'No extra permissions for "Runner".';
+GRANT Execute ON FUNCTION `demo`.`double_value` TO 'Runner';
+GRANT Execute ON PROCEDURE `demo`.`set_value` TO 'Runner';

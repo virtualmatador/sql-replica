@@ -7,3 +7,7 @@ CREATE FUNCTION `demo`.`double_value`(`input_value` int) RETURNS int DETERMINIST
 DELIMITER ;
 ALTER FUNCTION `demo`.`double_value` COMMENT '
 SQLR_HASH:836265c85cd52292494a09842bbb7447bbc391a22bce36193100c2ebf16da924';
+SET @r = 'No unlisted user permissions.';
+SET @r = 'User "Runner" exists.';
+SET @r = 'No extra permissions for "Runner".';
+GRANT Execute ON FUNCTION `demo`.`double_value` TO 'Runner';

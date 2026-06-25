@@ -4,3 +4,7 @@ SET @r = 'No extra routine.';
 SET @r = 'Routine double_value is ok.';
 SET @r = 'Routine double_value is ok.';
 SET @r = 'Routine comment double_value is ok.';
+SET @r = 'No unlisted user permissions.';
+SET @r = 'User "Runner" exists.';
+SET @r = 'No extra permissions for "Runner".';
+SET @r = 'Grant permissions on "double_value" for "Runner" is ok.';

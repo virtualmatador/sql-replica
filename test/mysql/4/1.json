@@ -13,5 +13,13 @@
       "definition": "(IN `input_value` int, OUT `output_value` int) MODIFIES SQL DATA SQL SECURITY INVOKER BEGIN SET output_value = input_value; END"
     }
   ],
-  "users": null
+  "users": [
+    {
+      "name": "Runner",
+      "permissions": [
+        {"type": "function", "subject": "double_value", "operations": ["EXECUTE"]},
+        {"type": "procedure", "subject": "set_value", "operations": ["EXECUTE"]}
+      ]
+    }
+  ]
 }

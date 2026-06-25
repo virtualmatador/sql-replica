@@ -8,5 +8,12 @@
       "definition": "(`input_value` int) RETURNS int DETERMINISTIC NO SQL SQL SECURITY INVOKER BEGIN RETURN input_value * 3; END"
     }
   ],
-  "users": null
+  "users": [
+    {
+      "name": "Runner",
+      "permissions": [
+        {"type": "function", "subject": "double_value", "operations": ["EXECUTE"]}
+      ]
+    }
+  ]
 }

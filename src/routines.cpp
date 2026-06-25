@@ -119,6 +119,27 @@ set @qry = if (isnull(@sub_query),
 )";
   sql_ += context_.exec;
   sql_ += R"(
+set @_sql_permissions = (
+  select coalesce(json_arrayagg(json_object(
+      'user', `user`,
+      'type', `type`,
+      'subject', `subject`,
+      'operations', `operations`
+  )), json_array())
+  from (
+      select *
+      from )" +
+          Objects::planned_permissions_from_json(
+              "ifnull(@_sql_permissions, json_array())") +
+          R"(
+      where
+          `type` = 'TABLE' or
+          instr(@all_routines, concat('{', `type`, ':', `subject`, '}')) != 0
+      order by `user`, `type`, `subject`
+  ) as `_sql_ordered_permissions`
+);
+)";
+  sql_ += R"(
 set @_sql_routines = (
   select coalesce(json_arrayagg(json_object(
       'name', `name`,
@@ -206,6 +227,30 @@ set @_sql_routines = if(@routine_changed,
       ) as `_sql_ordered_routines`
   ),
   @_sql_routines
+);
+set @_sql_permissions = if(@routine_changed and not isnull(@old_comment),
+  (
+      select coalesce(json_arrayagg(json_object(
+          'user', `user`,
+          'type', `type`,
+          'subject', `subject`,
+          'operations', `operations`
+      )), json_array())
+      from (
+          select *
+          from )" +
+            Objects::planned_permissions_from_json(
+                "ifnull(@_sql_permissions, json_array())") +
+            R"(
+          where not (`type` = ')" +
+            type + R"(' and
+              `subject` = ')" +
+            name +
+            R"(')
+          order by `user`, `type`, `subject`
+      ) as `_sql_ordered_permissions`
+  ),
+  @_sql_permissions
 );
 )";
     sql_ += R"(

@@ -7263,6 +7263,28 @@ set @qry = if (isnull(@sub_query),
 
 select @qry as '';
 
+set @_sql_permissions = (
+  select coalesce(json_arrayagg(json_object(
+      'user', `user`,
+      'type', `type`,
+      'subject', `subject`,
+      'operations', `operations`
+  )), json_array())
+  from (
+      select *
+      from json_table(ifnull(@_sql_permissions, json_array()), '$[*]' columns (
+        `user` varchar(255) path '$.user',
+        `type` varchar(32) path '$.type',
+        `subject` varchar(255) path '$.subject',
+        `operations` text path '$.operations'
+    )) as `planned_permissions`
+      where
+          `type` = 'TABLE' or
+          instr(@all_routines, concat('{', `type`, ':', `subject`, '}')) != 0
+      order by `user`, `type`, `subject`
+  ) as `_sql_ordered_permissions`
+);
+
 set @_sql_routines = (
   select coalesce(json_arrayagg(json_object(
       'name', `name`,
@@ -7331,6 +7353,29 @@ set @_sql_routines = if(@routine_changed,
       ) as `_sql_ordered_routines`
   ),
   @_sql_routines
+);
+set @_sql_permissions = if(@routine_changed and not isnull(@old_comment),
+  (
+      select coalesce(json_arrayagg(json_object(
+          'user', `user`,
+          'type', `type`,
+          'subject', `subject`,
+          'operations', `operations`
+      )), json_array())
+      from (
+          select *
+          from json_table(ifnull(@_sql_permissions, json_array()), '$[*]' columns (
+        `user` varchar(255) path '$.user',
+        `type` varchar(32) path '$.type',
+        `subject` varchar(255) path '$.subject',
+        `operations` text path '$.operations'
+    )) as `planned_permissions`
+          where not (`type` = 'FUNCTION' and
+              `subject` = 'active_project_count')
+          order by `user`, `type`, `subject`
+      ) as `_sql_ordered_permissions`
+  ),
+  @_sql_permissions
 );
 
 set @qry = if (@routine_changed,
@@ -7426,6 +7471,29 @@ set @_sql_routines = if(@routine_changed,
       ) as `_sql_ordered_routines`
   ),
   @_sql_routines
+);
+set @_sql_permissions = if(@routine_changed and not isnull(@old_comment),
+  (
+      select coalesce(json_arrayagg(json_object(
+          'user', `user`,
+          'type', `type`,
+          'subject', `subject`,
+          'operations', `operations`
+      )), json_array())
+      from (
+          select *
+          from json_table(ifnull(@_sql_permissions, json_array()), '$[*]' columns (
+        `user` varchar(255) path '$.user',
+        `type` varchar(32) path '$.type',
+        `subject` varchar(255) path '$.subject',
+        `operations` text path '$.operations'
+    )) as `planned_permissions`
+          where not (`type` = 'PROCEDURE' and
+              `subject` = 'archive_project')
+          order by `user`, `type`, `subject`
+      ) as `_sql_ordered_permissions`
+  ),
+  @_sql_permissions
 );
 
 set @qry = if (@routine_changed,
@@ -7898,3 +7966,4 @@ set @_sql_permissions = json_array_append(@_sql_permissions, '$', json_object(
   'subject', 'active_project_count',
   'operations', 'Execute'
 ));
+
