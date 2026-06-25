@@ -303,3 +303,86 @@ The output is a SQL code that will apply required changes in a server.
 - The GUID of the tables and columns shouldn't be changed through out the lifetime of the project. Changing them will cause data loss.
 - New user accounts are locked to prevent unwanted access. After applying the output, admins need to alter new users to set a password and unlock the account. e.g. ALTER USER 'Alice' IDENTIFIED BY "${password_for_alice}" ACCOUNT UNLOCK;
 - User accounts are not dropped by sqlr. Remove or lock accounts outside sqlr when a server-level account is no longer needed. To remove a user's access to this database, omit the user from the `users` section or set `users` to `[]`.
+
+# Application
+
+SQL Replica is a command-line application that wraps the `sqlr` library. It
+generates MySQL schema synchronization SQL from declarative JSON files.
+
+The application reads table, view, stored routine, user, and permission
+definitions, compares them against MySQL metadata at execution time, and emits
+SQL that updates a database to match those definitions.
+
+Project page: https://www.shaidin.com/sql-sync
+
+## Build
+
+From the repository root:
+
+```sh
+cmake -S . -B build
+cmake --build build
+```
+
+The binary is created at:
+
+```sh
+build/sql-replica
+```
+
+Run tests with:
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+Build a Debian package with:
+
+```sh
+cmake --build build --target package
+```
+
+## Usage
+
+```sh
+sql-replica [options] < schema.json
+```
+
+Options:
+
+```text
+-v, --version              Print version.
+-i, --input-file <file>    Read the schema JSON object from a file instead of
+                           standard input.
+-o, --output-file <file>   Write generated SQL to a file instead of stdout.
+-r, --report               Include command-reporting output in generated SQL.
+-d, --dry-run              Generate SQL that reports required changes without
+                           executing them.
+```
+
+Example:
+
+```sh
+build/sql-replica \
+  --report \
+  --dry-run \
+  --input-file schema.json \
+  --output-file sql.sql
+```
+
+## Application Output
+
+By default, SQL Replica emits executable MySQL SQL. Each generated statement is
+stored in `@qry`, prepared, executed, and deallocated.
+
+With `--dry-run`, generated SQL reports the commands it would run without
+executing them. With `--report`, generated SQL also emits each command for
+visibility.
+
+## Repository Layout
+
+```text
+main.cpp          CLI entry point.
+extern/jsonio     JSON support library.
+extern/cli        CLI argument parser.
+```

@@ -1,0 +1,6 @@
+[submodule "extern/jsonio"]
+	path = extern/jsonio
+	url = http://github.com/virtualmatador/jsonio
+[submodule "extern/cli"]
+	path = extern/cli
+	url = http://github.com/virtualmatador/cli
