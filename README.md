@@ -88,7 +88,7 @@ A column is an object that has the following fields:
 
 | Field Name | Required | Type | Description |
 | --- | --- | --- | --- |
-| id | Yes | string | A GUID generated solely for this column |
+| id | Yes | string | A schema-wide GUID generated solely for this column |
 | name | Yes | string | The name of the column |
 | type | Yes | string | The type of the column |
 | auto | No | boolean | The column is auto generated or no |

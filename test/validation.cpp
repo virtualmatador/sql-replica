@@ -219,13 +219,37 @@ bool t13_sanitize_rules_are_loaded() {
              __FUNCTION__);
 }
 
+bool t14_repeated_column_id_across_tables() {
+  auto tables = read_json(R"([
+    {
+      "name": "account",
+      "id": "ACCOUNT_TABLE",
+      "columns": [
+        {"id": "SHARED_COLUMN_ID", "name": "id", "type": "int unsigned"}
+      ]
+    },
+    {
+      "name": "profile",
+      "id": "PROFILE_TABLE",
+      "columns": [
+        {"id": "SHARED_COLUMN_ID", "name": "account_id", "type": "int unsigned"}
+      ]
+    }
+  ])");
+  auto empty = read_json("[]");
+  return expect_throw(
+      [&] { Schema(schema(tables, empty, empty), true, true).replicate_sql(); },
+      __FUNCTION__);
+}
+
 int main() {
   if (t01_bad_db_name() && t02_bad_engine() && t03_bad_key_type() &&
       t04_bad_foreign_key_action() && t05_unknown_table_field() &&
       t06_bad_user_subject() && t07_bad_permission_type() &&
       t08_bad_routine() && t09_bad_routine_definition() &&
       t10_bad_view_body() && t11_bad_view_body_semicolon() &&
-      t12_generate_prefixes() && t13_sanitize_rules_are_loaded() && true) {
+      t12_generate_prefixes() && t13_sanitize_rules_are_loaded() &&
+      t14_repeated_column_id_across_tables() && true) {
     return 0;
   }
   return -1;

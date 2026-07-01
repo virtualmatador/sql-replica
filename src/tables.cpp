@@ -52,7 +52,7 @@ void Tables::validate_foreign_key_action(const std::string &action) {
 
 void Tables::validate(const jsonio::json &tables,
                       const std::string &bad_prefix) {
-  for (std::map<std::string, std::size_t> table_ids;
+  for (std::map<std::string, std::size_t> table_ids, column_ids;
        const auto &table : tables.get_array()) {
     Objects::validate_fields(
         table, {"id", "name", "engine", "columns", "keys", "foreign-keys"},
@@ -70,8 +70,7 @@ void Tables::validate(const jsonio::json &tables,
     if (++table_ids[table["id"].get_string()] > 1) {
       throw std::runtime_error("Publish MySQL: Repeated Table Id");
     }
-    for (std::map<std::string, std::size_t> column_ids;
-         const auto &column : table["columns"].get_array()) {
+    for (const auto &column : table["columns"].get_array()) {
       Objects::validate_fields(
           column, {"id", "name", "type", "auto", "null", "default"}, "Column");
       Objects::sanitize(column["name"].get_string(),
