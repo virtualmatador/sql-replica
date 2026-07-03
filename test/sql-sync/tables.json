@@ -18,7 +18,9 @@
       {
         "name": "password",
         "id": "410FE4351CD34E61AF4DAFE2B7AB7FE4",
-        "type": "varchar(255)"
+        "type": "varchar(255)",
+        "charset": "ascii",
+        "collate": "ascii_bin"
       }
     ],
     "keys": [
@@ -121,7 +123,8 @@
       {
         "name": "nickname",
         "id": "F27DEAD22DBB4256BA9B0B04147411EE",
-        "type": "varchar(50)"
+        "type": "varchar(50)",
+        "collate": "utf8mb4_bin"
       },
       {
         "name": "pin",

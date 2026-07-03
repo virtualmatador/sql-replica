@@ -1,0 +1,32 @@
+-- pass 1
+CREATE DATABASE `demo`;
+USE `demo`;
+CREATE TABLE `demo`.`_sql_article` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB COMMENT 'ARTICLE_TABLE';
+SET @r = 'No extra table.';
+SET @r = 'All tables have prefix.';
+RENAME TABLE `demo`.`_sql_article` to `demo`.`article`;
+SET @r = 'Engine of "article" is ok.';
+ALTER TABLE `demo`.`article` ADD `_sql_id` int unsigned COMMENT 'ARTICLE_ID', ADD `_sql_title` varchar(64) CHARACTER SET latin1 COMMENT 'ARTICLE_TITLE';
+ALTER TABLE `demo`.`article` RENAME COLUMN `_sql_` to `_sql__drop__sql_`;
+SET @r = 'All columns in "article" have prefix.';
+ALTER TABLE `demo`.`article` RENAME COLUMN `_sql_id` to `id`, RENAME COLUMN `_sql_title` to `title`;
+SET @r = 'No extra foreign keys in "article".';
+ALTER TABLE `demo`.`article` MODIFY `id` int unsigned not null auto_increment COMMENT 'ARTICLE_ID' FIRST, MODIFY `title` varchar(64) CHARACTER SET latin1 not null COMMENT 'ARTICLE_TITLE' AFTER `id`, ADD primary key (`id`), DROP COLUMN `_sql__drop__sql_`;
+SET @r = 'Table "article" is ok.';
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+USE `demo`;
+SET @r = 'Table "article" exist.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "article" is ok.';
+SET @r = 'No new column in "article" is needed.';
+SET @r = 'No extra column in "article".';
+SET @r = 'No column in "article" needs prefix.';
+SET @r = 'No column in "article" needs rename.';
+SET @r = 'No extra foreign keys in "article".';
+SET @r = 'Table "article" is ok.';
+SET @r = 'Table "article" is ok.';
+SET @r = 'No extra table.';

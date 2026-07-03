@@ -8,7 +8,18 @@ The benefits of using "Sqlr":
 - Doesn't require maintaining any kind of history
 
 How the magic happens:
-- Each table and column definition needs a GUID that shouldn't be changed through out the whole life of the project.
+- Each table and column definition needs a GUID that should stay stable for the
+  life of the project.
+
+# Behavioral Promises
+
+- A successful run applies all intended schema changes for the provided sections.
+- Direct execution and report/dry-run execution have the same schema effect.
+  - Routine bodies require report/dry-run mode because MySQL delimiter handling
+    is not available in single-run mode.
+- Modification commands are not generated for objects that are already in
+  the desired state.
+  - Views are recreated on each run.
 
 # Input
 
@@ -94,16 +105,19 @@ A column is an object that has the following fields:
 | auto | No | boolean | The column is auto generated or no |
 | null | No | boolean | The column accepts null values or no |
 | default | No | string | The default value for the column |
+| charset | No | string | The explicit character set for the column |
+| collate | No | string | The explicit collation for the column |
 
 Example:
 ```json
 {
     "id": "76AC03C95026487AB55A590C48FE4C8F",
-    "name": "id",
-    "type": "int unsigned",
-    "auto": true,
+    "name": "title",
+    "type": "varchar(255)",
     "null": false,
-    "default": ""
+    "default": "",
+    "charset": "utf8mb4",
+    "collate": "utf8mb4_unicode_ci"
 }
 ```
 
@@ -300,7 +314,8 @@ The output is a SQL code that will apply required changes in a server.
 
 # Remarks
 
-- The GUID of the tables and columns shouldn't be changed through out the lifetime of the project. Changing them will cause data loss.
+- Table and column GUIDs should stay stable for the lifetime of the project.
+  Changing them can cause data loss.
 - New user accounts are locked to prevent unwanted access. After applying the output, admins need to alter new users to set a password and unlock the account. e.g. ALTER USER 'Alice' IDENTIFIED BY "${password_for_alice}" ACCOUNT UNLOCK;
 - User accounts are not dropped by sqlr. Remove or lock accounts outside sqlr when a server-level account is no longer needed. To remove a user's access to this database, omit the user from the `users` section or set `users` to `[]`.
 

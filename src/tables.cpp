@@ -17,6 +17,82 @@ std::string default_clause_for_dynamic_sql(const jsonio::json *default_value) {
          Objects::escape_sql_string(default_value->get_string());
 }
 
+std::string nullable_string_for_dynamic_sql(const jsonio::json *value) {
+  if (!value) {
+    return "null";
+  }
+  return "'" + Objects::escape_sql_string(value->get_string()) + "'";
+}
+
+void validate_mysql_identifier(const std::string &value,
+                               const char *error_message) {
+  if (value.empty() ||
+      std::any_of(value.begin(), value.end(), [](unsigned char c) {
+        return !std::isalnum(c) && c != '_';
+      })) {
+    throw std::runtime_error(error_message);
+  }
+}
+
+std::string normalize_column_charset_sql(const jsonio::json &table,
+                                         const jsonio::json &column) {
+  const auto charset = column.at("charset");
+  const auto collate = column.at("collate");
+  return R"(
+set @desired_charset = )" +
+         nullable_string_for_dynamic_sql(charset) +
+         R"(;
+set @desired_collate = )" +
+         nullable_string_for_dynamic_sql(collate) +
+         R"(;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from )" +
+         Objects::planned_tables_from_json() +
+         R"(
+  where `name` = ')" +
+         table["name"].get_string() +
+         R"(' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+)";
+}
+
 } // namespace
 
 void Tables::validate_engine(const std::string &engine) {
@@ -72,7 +148,10 @@ void Tables::validate(const jsonio::json &tables,
     }
     for (const auto &column : table["columns"].get_array()) {
       Objects::validate_fields(
-          column, {"id", "name", "type", "auto", "null", "default"}, "Column");
+          column,
+          {"id", "name", "type", "auto", "null", "default", "charset",
+           "collate"},
+          "Column");
       Objects::sanitize(column["name"].get_string(),
                         Objects::SanitizeRule::ColumnName);
       if (column["name"].get_string().rfind(bad_prefix, 0) == 0) {
@@ -88,6 +167,18 @@ void Tables::validate(const jsonio::json &tables,
       if (auto default_value = column.at("default"); default_value) {
         Objects::sanitize(default_value->get_string(),
                           Objects::SanitizeRule::SqlExpression);
+      }
+      if (auto charset = column.at("charset"); charset) {
+        Objects::sanitize(charset->get_string(),
+                          Objects::SanitizeRule::MysqlCharset);
+        validate_mysql_identifier(charset->get_string(),
+                                  "Publish MySQL: Bad Charset");
+      }
+      if (auto collate = column.at("collate"); collate) {
+        Objects::sanitize(collate->get_string(),
+                          Objects::SanitizeRule::MysqlCollation);
+        validate_mysql_identifier(collate->get_string(),
+                                  "Publish MySQL: Bad Collation");
       }
       if (++column_ids[column["id"].get_string()] > 1) {
         throw std::runtime_error("Publish MySQL: Repeated Column Id");
@@ -196,7 +287,7 @@ set @qry = if (isnull(@old_table),
             table["name"].get_string() + R"(` (`)" + context_.bad_prefix +
             R"(` int UNSIGNED NOT NULL) ENGINE=)" +
             engines_[table["name"].get_string()] +
-            R"( DEFAULT CHARSET=utf8 COMMENT \')" + table["id"].get_string() +
+            R"( COMMENT \')" + table["id"].get_string() +
             R"(\';'
 ,
   'SET @r = \'Table ")" +
@@ -215,7 +306,9 @@ set @_sql_tables = if(isnull(@old_table),
             R"(',
       'type', 'BASE TABLE',
       'engine', ')" +
-            engines_[table["name"].get_string()] + R"('
+            engines_[table["name"].get_string()] + R"(',
+      'charset', @_sql_schema_charset,
+      'collate', @_sql_schema_collate
   )),
   @_sql_tables
 );
@@ -230,6 +323,8 @@ set @_sql_columns = if(isnull(@old_table),
       'comment', '',
       'type', 'int unsigned',
       'default', null,
+      'charset', null,
+      'collate', null,
       'nullable', 'NO',
       'auto', false,
       'ordinal', 1
@@ -286,6 +381,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -381,7 +478,9 @@ set @_sql_tables = (
       'name', `name`,
       'comment', `comment`,
       'type', `type`,
-      'engine', `engine`
+      'engine', `engine`,
+      'charset', `charset`,
+      'collate', `collate`
   )), json_array())
   from (
       select
@@ -396,7 +495,9 @@ set @_sql_tables = (
           ) as `name`,
           `comment`,
           `type`,
-          `engine`
+          `engine`,
+          `charset`,
+          `collate`
       from )" +
           Objects::planned_tables_from_json() +
           R"(
@@ -481,6 +582,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -562,6 +665,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -657,6 +762,7 @@ set @sub_query = '';
 )";
     for (const auto &column : table["columns"].get_array()) {
       auto default_value = column.at("default");
+      sql_ += normalize_column_charset_sql(table, column);
       sql_ += R"(
 set @all_columns = concat(@all_columns, '{)" +
               column["id"].get_string() +
@@ -673,6 +779,7 @@ set @sub_query = if (isnull(@old_column),
   concat(@sub_query, 'ADD `)" +
               context_.bad_prefix + column["name"].get_string() + R"(` )" +
               column["type"].get_string() +
+              R"(', @new_charset_clause, @new_collate_clause, ')" +
               default_clause_for_dynamic_sql(default_value) +
               R"( COMMENT \')" + column["id"].get_string() +
               R"(\', ')
@@ -695,6 +802,7 @@ set @qry = if (@sub_query != '',
     sql_ += context_.exec;
     for (const auto &column : table["columns"].get_array()) {
       auto default_value = column.at("default");
+      sql_ += normalize_column_charset_sql(table, column);
       sql_ += R"(
 set @old_column = null;
 select `name` into @old_column
@@ -730,6 +838,8 @@ set @_sql_columns = if(isnull(@old_column),
       'default', )" +
               (default_value ? default_value->get_string() : "null") +
               R"(,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
@@ -857,6 +967,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -876,6 +988,8 @@ set @_sql_columns = (
           `comment`,
           `type`,
           `default_value`,
+          `charset`,
+          `collate`,
           `nullable`,
           `auto`,
           `ordinal`
@@ -1305,15 +1419,18 @@ set @ordinal_change = false;
           column_auto && column_auto->get_bool()) {
         is_auto = true;
       };
+      sql_ += normalize_column_charset_sql(table, column);
       sql_ +=
           R"(
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from )" +
           Objects::planned_columns_from_json() +
           R"(
@@ -1334,12 +1451,15 @@ set @sub_query = if (@ordinal_change or
                                default_value->get_string()
                          : "") +
           R"( or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != ')" +
           (is_null ? "YES" : "NO") + R"(' or
   @old_auto != )" +
           (is_auto ? "true" : "false") + R"(,
   concat(@sub_query, 'MODIFY `)" +
           column["name"].get_string() + R"(` )" + column["type"].get_string() +
+          R"(', @new_charset_clause, @new_collate_clause, ')" +
           default_clause_for_dynamic_sql(default_value) +
           (is_null ? " null" : " not null") +
           (is_auto ? " auto_increment" : "") + R"( COMMENT \')" +
@@ -1460,6 +1580,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -1534,6 +1656,7 @@ set @_sql_indexes = json_array_append(@_sql_indexes, '$', json_object(
           column_auto && column_auto->get_bool()) {
         is_auto = true;
       }
+      sql_ += normalize_column_charset_sql(table, column);
       sql_ += R"(
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', ')" +
@@ -1554,6 +1677,8 @@ set @_sql_columns = if(@column_object is null,
                    : "json_extract(@_sql_columns, concat(@column_object, "
                      "'.default'))") +
               R"(,
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), ')" +
               (is_null ? "YES" : "NO") + R"(',
       concat(@column_object, '.auto'), )" +
@@ -1648,7 +1773,9 @@ set @_sql_tables = (
       'name', `name`,
       'comment', `comment`,
       'type', `type`,
-      'engine', `engine`
+      'engine', `engine`,
+      'charset', `charset`,
+      'collate', `collate`
   )), json_array())
   from (
       select *
@@ -1741,23 +1868,45 @@ set @_sql_foreign_keys = if(isnull(@old_constraint),
 std::string Tables::snapshot_schema_state(const std::string &db_name) {
   std::string sql;
   sql += R"(
+set @_sql_schema_charset = (
+    select coalesce((
+        select `DEFAULT_CHARACTER_SET_NAME`
+        from `INFORMATION_SCHEMA`.`SCHEMATA`
+        where `SCHEMA_NAME` = ')" +
+         db_name + R"('
+    ), @@character_set_server)
+);
+set @_sql_schema_collate = (
+    select coalesce((
+        select `DEFAULT_COLLATION_NAME`
+        from `INFORMATION_SCHEMA`.`SCHEMATA`
+        where `SCHEMA_NAME` = ')" +
+         db_name + R"('
+    ), @@collation_server)
+);
 set @_sql_tables = if(isnull(@old_db), json_array(), (
 select coalesce(json_arrayagg(json_object(
     'name', `name`,
     'comment', `comment`,
     'type', `type`,
-    'engine', `engine`
+    'engine', `engine`,
+    'charset', `charset`,
+    'collate', `collate`
 )), json_array())
 from (
     select
-        `TABLE_NAME` as `name`,
-        `TABLE_COMMENT` as `comment`,
-        `TABLE_TYPE` as `type`,
-        `ENGINE` as `engine`
-    from `INFORMATION_SCHEMA`.`TABLES`
-    where `TABLE_SCHEMA` = ')" +
+        `t`.`TABLE_NAME` as `name`,
+        `t`.`TABLE_COMMENT` as `comment`,
+        `t`.`TABLE_TYPE` as `type`,
+        `t`.`ENGINE` as `engine`,
+        `table_collation`.`CHARACTER_SET_NAME` as `charset`,
+        `t`.`TABLE_COLLATION` as `collate`
+    from `INFORMATION_SCHEMA`.`TABLES` as `t`
+    left join `INFORMATION_SCHEMA`.`COLLATIONS` as `table_collation` on
+        `table_collation`.`COLLATION_NAME` = `t`.`TABLE_COLLATION`
+    where `t`.`TABLE_SCHEMA` = ')" +
          db_name + R"('
-    order by `TABLE_TYPE`, `TABLE_NAME`
+    order by `t`.`TABLE_TYPE`, `t`.`TABLE_NAME`
 ) as `_sql_ordered_tables`
 ));
 set @_sql_columns = if(isnull(@old_db), json_array(), (
@@ -1767,24 +1916,52 @@ select coalesce(json_arrayagg(json_object(
     'comment', `comment`,
     'type', `type`,
     'default', `default_value`,
+    'charset', `charset`,
+    'collate', `collate`,
     'nullable', `nullable`,
     'auto', `auto`,
     'ordinal', `ordinal`
 )), json_array())
 from (
     select
-        `TABLE_NAME` as `table`,
-        `COLUMN_NAME` as `name`,
-        `COLUMN_COMMENT` as `comment`,
-        `COLUMN_TYPE` as `type`,
-        `COLUMN_DEFAULT` as `default_value`,
-        `IS_NULLABLE` as `nullable`,
-        `EXTRA` like '%auto_increment%' as `auto`,
-        `ORDINAL_POSITION` as `ordinal`
-    from `INFORMATION_SCHEMA`.`COLUMNS`
-    where `TABLE_SCHEMA` = ')" +
+        `c`.`TABLE_NAME` as `table`,
+        `c`.`COLUMN_NAME` as `name`,
+        `c`.`COLUMN_COMMENT` as `comment`,
+        `c`.`COLUMN_TYPE` as `type`,
+        `c`.`COLUMN_DEFAULT` as `default_value`,
+        if(
+            `c`.`CHARACTER_SET_NAME` is null or
+                `c`.`CHARACTER_SET_NAME` = `table_collation`.`CHARACTER_SET_NAME`,
+            null,
+            `c`.`CHARACTER_SET_NAME`
+        ) as `charset`,
+        if(
+            `c`.`COLLATION_NAME` is null or
+                `c`.`COLLATION_NAME` = if(
+                    `c`.`CHARACTER_SET_NAME` is null or
+                        `c`.`CHARACTER_SET_NAME` = `table_collation`.`CHARACTER_SET_NAME`,
+                    `t`.`TABLE_COLLATION`,
+                    `column_default_collation`.`COLLATION_NAME`
+                ),
+            null,
+            `c`.`COLLATION_NAME`
+        ) as `collate`,
+        `c`.`IS_NULLABLE` as `nullable`,
+        `c`.`EXTRA` like '%auto_increment%' as `auto`,
+        `c`.`ORDINAL_POSITION` as `ordinal`
+    from `INFORMATION_SCHEMA`.`COLUMNS` as `c`
+    left join `INFORMATION_SCHEMA`.`TABLES` as `t` on
+        `t`.`TABLE_SCHEMA` = `c`.`TABLE_SCHEMA` and
+        `t`.`TABLE_NAME` = `c`.`TABLE_NAME`
+    left join `INFORMATION_SCHEMA`.`COLLATIONS` as `table_collation` on
+        `table_collation`.`COLLATION_NAME` = `t`.`TABLE_COLLATION`
+    left join `INFORMATION_SCHEMA`.`COLLATIONS` as `column_default_collation` on
+        `column_default_collation`.`CHARACTER_SET_NAME` =
+            `c`.`CHARACTER_SET_NAME` and
+        `column_default_collation`.`IS_DEFAULT` = 'Yes'
+    where `c`.`TABLE_SCHEMA` = ')" +
          db_name + R"('
-    order by `TABLE_NAME`, `ORDINAL_POSITION`, `COLUMN_NAME`
+    order by `c`.`TABLE_NAME`, `c`.`ORDINAL_POSITION`, `c`.`COLUMN_NAME`
 ) as `_sql_ordered_columns`
 ));
 set @_sql_indexes = if(isnull(@old_db), json_array(), (

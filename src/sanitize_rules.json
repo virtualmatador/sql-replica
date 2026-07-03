@@ -51,5 +51,11 @@
       {"from": "bool", "to": "tinyint(1)"},
       {"from": "boolean", "to": "tinyint(1)"}
     ]
+  },
+  "mysql-charset": {
+    "reject": "\\'` "
+  },
+  "mysql-collation": {
+    "reject": "\\'` "
   }
 }

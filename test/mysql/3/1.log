@@ -1,8 +1,8 @@
 -- pass 1
 CREATE DATABASE `demo`;
 USE `demo`;
-CREATE TABLE `demo`.`_sql_account` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'ACCOUNT_TABLE';
-CREATE TABLE `demo`.`_sql_project` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'PROJECT_TABLE';
+CREATE TABLE `demo`.`_sql_account` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB COMMENT 'ACCOUNT_TABLE';
+CREATE TABLE `demo`.`_sql_project` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB COMMENT 'PROJECT_TABLE';
 SET @r = 'No extra table.';
 SET @r = 'All tables have prefix.';
 RENAME TABLE `demo`.`_sql_account` to `demo`.`account`, `demo`.`_sql_project` to `demo`.`project`;

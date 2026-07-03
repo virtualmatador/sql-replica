@@ -23,7 +23,9 @@ public:
     ViewName,
     SqlExpression,
     ViewBody,
-    MysqlColumnType
+    MysqlColumnType,
+    MysqlCharset,
+    MysqlCollation
   };
 
   static bool equals_ignore_case(const std::string &lhs, const char *rhs);

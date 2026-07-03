@@ -33,9 +33,10 @@ bool t01() {
          expect_contains(sql, "'name', '_sql_'", __FUNCTION__) &&
          expect_contains(sql, "DROP COLUMN `', `name`, '`'", __FUNCTION__) &&
          expect_contains(sql, "json_set(@_sql_columns", __FUNCTION__) &&
-         expect_contains(
-             sql, "order by `TABLE_NAME`, `ORDINAL_POSITION`, `COLUMN_NAME`",
-             __FUNCTION__) &&
+         expect_contains(sql,
+                         "order by `c`.`TABLE_NAME`, `c`.`ORDINAL_POSITION`, "
+                         "`c`.`COLUMN_NAME`",
+                         __FUNCTION__) &&
          expect_not_contains(sql, "prepare stmt from @qry;", __FUNCTION__);
 }
 
@@ -246,6 +247,56 @@ bool t08_column_type_comparison_uses_mysql_schema_form() {
                              __FUNCTION__);
 }
 
+bool t09_column_charset_and_collate_are_column_properties() {
+  auto tables = read_json(R"json([
+    {
+      "name": "account",
+      "id": "ACCOUNT_TABLE",
+      "columns": [
+        {"id": "ACCOUNT_ID", "name": "id", "type": "int unsigned"},
+        {"id": "ACCOUNT_TITLE", "name": "title", "type": "varchar(64)", "charset": "utf8mb4"},
+        {"id": "ACCOUNT_CODE", "name": "code", "type": "varchar(64)", "collate": "utf8mb4_bin"},
+        {"id": "ACCOUNT_SLUG", "name": "slug", "type": "varchar(64)", "charset": "latin1", "collate": "latin1_bin"},
+        {"id": "ACCOUNT_NOTE", "name": "note", "type": "varchar(64)"}
+      ]
+    }
+  ])json");
+  auto empty = read_json("[]");
+  const auto sql =
+      Schema(schema(tables, empty, empty), false, false).replicate_sql();
+  return expect_contains(sql, "`c`.`CHARACTER_SET_NAME`", __FUNCTION__) &&
+         expect_contains(sql, "`c`.`COLLATION_NAME`", __FUNCTION__) &&
+         expect_contains(sql, "set @desired_charset = 'utf8mb4';",
+                         __FUNCTION__) &&
+         expect_contains(sql, "set @desired_collate = 'utf8mb4_bin';",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "ADD `_sql_title` varchar(64)', "
+                         "@new_charset_clause, @new_collate_clause",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "ADD `_sql_code` varchar(64)', "
+                         "@new_charset_clause, @new_collate_clause",
+                         __FUNCTION__) &&
+         expect_contains(
+             sql,
+             "MODIFY `slug` varchar(64)', @new_charset_clause, "
+             "@new_collate_clause",
+             __FUNCTION__) &&
+         expect_contains(sql, "set @new_charset = if(", __FUNCTION__) &&
+         expect_contains(sql, "set @new_collate = if(", __FUNCTION__) &&
+         expect_contains(sql, "not (@old_charset <=> @new_charset)",
+                         __FUNCTION__) &&
+         expect_contains(sql, "not (@old_collate <=> @new_collate)",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "concat(@column_object, '.charset'), @new_charset",
+                         __FUNCTION__) &&
+         expect_contains(sql,
+                         "concat(@column_object, '.collate'), @new_collate",
+                         __FUNCTION__);
+}
+
 int main() {
   if (t01() && t02_rename_updates_dependents() &&
       t03_keys_are_applied_before_state_update() &&
@@ -253,7 +304,8 @@ int main() {
       t05_marked_extra_tables_move_dependent_state() &&
       t06_extra_columns_stale_dependent_state() &&
       t07_default_drop_uses_state_before_clearing() &&
-      t08_column_type_comparison_uses_mysql_schema_form() && true) {
+      t08_column_type_comparison_uses_mysql_schema_form() &&
+      t09_column_charset_and_collate_are_column_properties() && true) {
     return 0;
   }
   return -1;

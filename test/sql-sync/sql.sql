@@ -12,22 +12,42 @@ select @qry as '';
 
 select 'USE `sales`;' as '';
 
+set @_sql_schema_charset = (
+    select coalesce((
+        select `DEFAULT_CHARACTER_SET_NAME`
+        from `INFORMATION_SCHEMA`.`SCHEMATA`
+        where `SCHEMA_NAME` = 'sales'
+    ), @@character_set_server)
+);
+set @_sql_schema_collate = (
+    select coalesce((
+        select `DEFAULT_COLLATION_NAME`
+        from `INFORMATION_SCHEMA`.`SCHEMATA`
+        where `SCHEMA_NAME` = 'sales'
+    ), @@collation_server)
+);
 set @_sql_tables = if(isnull(@old_db), json_array(), (
 select coalesce(json_arrayagg(json_object(
     'name', `name`,
     'comment', `comment`,
     'type', `type`,
-    'engine', `engine`
+    'engine', `engine`,
+    'charset', `charset`,
+    'collate', `collate`
 )), json_array())
 from (
     select
-        `TABLE_NAME` as `name`,
-        `TABLE_COMMENT` as `comment`,
-        `TABLE_TYPE` as `type`,
-        `ENGINE` as `engine`
-    from `INFORMATION_SCHEMA`.`TABLES`
-    where `TABLE_SCHEMA` = 'sales'
-    order by `TABLE_TYPE`, `TABLE_NAME`
+        `t`.`TABLE_NAME` as `name`,
+        `t`.`TABLE_COMMENT` as `comment`,
+        `t`.`TABLE_TYPE` as `type`,
+        `t`.`ENGINE` as `engine`,
+        `table_collation`.`CHARACTER_SET_NAME` as `charset`,
+        `t`.`TABLE_COLLATION` as `collate`
+    from `INFORMATION_SCHEMA`.`TABLES` as `t`
+    left join `INFORMATION_SCHEMA`.`COLLATIONS` as `table_collation` on
+        `table_collation`.`COLLATION_NAME` = `t`.`TABLE_COLLATION`
+    where `t`.`TABLE_SCHEMA` = 'sales'
+    order by `t`.`TABLE_TYPE`, `t`.`TABLE_NAME`
 ) as `_sql_ordered_tables`
 ));
 set @_sql_columns = if(isnull(@old_db), json_array(), (
@@ -37,23 +57,51 @@ select coalesce(json_arrayagg(json_object(
     'comment', `comment`,
     'type', `type`,
     'default', `default_value`,
+    'charset', `charset`,
+    'collate', `collate`,
     'nullable', `nullable`,
     'auto', `auto`,
     'ordinal', `ordinal`
 )), json_array())
 from (
     select
-        `TABLE_NAME` as `table`,
-        `COLUMN_NAME` as `name`,
-        `COLUMN_COMMENT` as `comment`,
-        `COLUMN_TYPE` as `type`,
-        `COLUMN_DEFAULT` as `default_value`,
-        `IS_NULLABLE` as `nullable`,
-        `EXTRA` like '%auto_increment%' as `auto`,
-        `ORDINAL_POSITION` as `ordinal`
-    from `INFORMATION_SCHEMA`.`COLUMNS`
-    where `TABLE_SCHEMA` = 'sales'
-    order by `TABLE_NAME`, `ORDINAL_POSITION`, `COLUMN_NAME`
+        `c`.`TABLE_NAME` as `table`,
+        `c`.`COLUMN_NAME` as `name`,
+        `c`.`COLUMN_COMMENT` as `comment`,
+        `c`.`COLUMN_TYPE` as `type`,
+        `c`.`COLUMN_DEFAULT` as `default_value`,
+        if(
+            `c`.`CHARACTER_SET_NAME` is null or
+                `c`.`CHARACTER_SET_NAME` = `table_collation`.`CHARACTER_SET_NAME`,
+            null,
+            `c`.`CHARACTER_SET_NAME`
+        ) as `charset`,
+        if(
+            `c`.`COLLATION_NAME` is null or
+                `c`.`COLLATION_NAME` = if(
+                    `c`.`CHARACTER_SET_NAME` is null or
+                        `c`.`CHARACTER_SET_NAME` = `table_collation`.`CHARACTER_SET_NAME`,
+                    `t`.`TABLE_COLLATION`,
+                    `column_default_collation`.`COLLATION_NAME`
+                ),
+            null,
+            `c`.`COLLATION_NAME`
+        ) as `collate`,
+        `c`.`IS_NULLABLE` as `nullable`,
+        `c`.`EXTRA` like '%auto_increment%' as `auto`,
+        `c`.`ORDINAL_POSITION` as `ordinal`
+    from `INFORMATION_SCHEMA`.`COLUMNS` as `c`
+    left join `INFORMATION_SCHEMA`.`TABLES` as `t` on
+        `t`.`TABLE_SCHEMA` = `c`.`TABLE_SCHEMA` and
+        `t`.`TABLE_NAME` = `c`.`TABLE_NAME`
+    left join `INFORMATION_SCHEMA`.`COLLATIONS` as `table_collation` on
+        `table_collation`.`COLLATION_NAME` = `t`.`TABLE_COLLATION`
+    left join `INFORMATION_SCHEMA`.`COLLATIONS` as `column_default_collation` on
+        `column_default_collation`.`CHARACTER_SET_NAME` =
+            `c`.`CHARACTER_SET_NAME` and
+        `column_default_collation`.`IS_DEFAULT` = 'Yes'
+    where `c`.`TABLE_SCHEMA` = 'sales'
+    order by `c`.`TABLE_NAME`, `c`.`ORDINAL_POSITION`, `c`.`COLUMN_NAME`
 ) as `_sql_ordered_columns`
 ));
 set @_sql_indexes = if(isnull(@old_db), json_array(), (
@@ -207,11 +255,13 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = '93B099B08D144B40BCC918FA24831669' and `type` = 'BASE TABLE';
 set @qry = if (isnull(@old_table),
-  'CREATE TABLE `sales`.`_sql_user` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT \'93B099B08D144B40BCC918FA24831669\';'
+  'CREATE TABLE `sales`.`_sql_user` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB COMMENT \'93B099B08D144B40BCC918FA24831669\';'
 ,
   'SET @r = \'Table "user" exist.\';'
 );
@@ -223,7 +273,9 @@ set @_sql_tables = if(isnull(@old_table),
       'name', '_sql_user',
       'comment', '93B099B08D144B40BCC918FA24831669',
       'type', 'BASE TABLE',
-      'engine', 'InnoDB'
+      'engine', 'InnoDB',
+      'charset', @_sql_schema_charset,
+      'collate', @_sql_schema_collate
   )),
   @_sql_tables
 );
@@ -234,6 +286,8 @@ set @_sql_columns = if(isnull(@old_table),
       'comment', '',
       'type', 'int unsigned',
       'default', null,
+      'charset', null,
+      'collate', null,
       'nullable', 'NO',
       'auto', false,
       'ordinal', 1
@@ -248,11 +302,13 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = '3D9C2B4ED6BA4AE39D3333FC5BBCC1FF' and `type` = 'BASE TABLE';
 set @qry = if (isnull(@old_table),
-  'CREATE TABLE `sales`.`_sql_project` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT \'3D9C2B4ED6BA4AE39D3333FC5BBCC1FF\';'
+  'CREATE TABLE `sales`.`_sql_project` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB COMMENT \'3D9C2B4ED6BA4AE39D3333FC5BBCC1FF\';'
 ,
   'SET @r = \'Table "project" exist.\';'
 );
@@ -264,7 +320,9 @@ set @_sql_tables = if(isnull(@old_table),
       'name', '_sql_project',
       'comment', '3D9C2B4ED6BA4AE39D3333FC5BBCC1FF',
       'type', 'BASE TABLE',
-      'engine', 'InnoDB'
+      'engine', 'InnoDB',
+      'charset', @_sql_schema_charset,
+      'collate', @_sql_schema_collate
   )),
   @_sql_tables
 );
@@ -275,6 +333,8 @@ set @_sql_columns = if(isnull(@old_table),
       'comment', '',
       'type', 'int unsigned',
       'default', null,
+      'charset', null,
+      'collate', null,
       'nullable', 'NO',
       'auto', false,
       'ordinal', 1
@@ -289,11 +349,13 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = 'FC94A0BB4E9B422ABC399BBF79E6AC43' and `type` = 'BASE TABLE';
 set @qry = if (isnull(@old_table),
-  'CREATE TABLE `sales`.`_sql_member` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT \'FC94A0BB4E9B422ABC399BBF79E6AC43\';'
+  'CREATE TABLE `sales`.`_sql_member` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB COMMENT \'FC94A0BB4E9B422ABC399BBF79E6AC43\';'
 ,
   'SET @r = \'Table "member" exist.\';'
 );
@@ -305,7 +367,9 @@ set @_sql_tables = if(isnull(@old_table),
       'name', '_sql_member',
       'comment', 'FC94A0BB4E9B422ABC399BBF79E6AC43',
       'type', 'BASE TABLE',
-      'engine', 'InnoDB'
+      'engine', 'InnoDB',
+      'charset', @_sql_schema_charset,
+      'collate', @_sql_schema_collate
   )),
   @_sql_tables
 );
@@ -316,6 +380,8 @@ set @_sql_columns = if(isnull(@old_table),
       'comment', '',
       'type', 'int unsigned',
       'default', null,
+      'charset', null,
+      'collate', null,
       'nullable', 'NO',
       'auto', false,
       'ordinal', 1
@@ -330,7 +396,9 @@ select group_concat(concat('`sales`.`', `name`, '` to `sales`.`_sql__drop_', `na
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `name` not like '_sql__drop_%' and `type` = 'BASE TABLE' and
       instr(@all_tables, concat('{', `comment`, '}')) = 0;
@@ -351,7 +419,9 @@ set @_sql_columns = (
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
               where `planned_tables`.`name` = `_sql_ordered_columns`.`table` and
                   `planned_tables`.`name` not like '_sql__drop_%' and `planned_tables`.`type` = 'BASE TABLE' and
@@ -364,6 +434,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -376,6 +448,8 @@ set @_sql_columns = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -392,7 +466,9 @@ set @_sql_indexes = (
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
               where `planned_tables`.`name` = `_sql_ordered_indexes`.`table` and
                   `planned_tables`.`name` not like '_sql__drop_%' and `planned_tables`.`type` = 'BASE TABLE' and
@@ -425,7 +501,9 @@ set @_sql_foreign_keys = (
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
               where `planned_tables`.`name` = `_sql_ordered_foreign_keys`.`table` and
                   `planned_tables`.`name` not like '_sql__drop_%' and `planned_tables`.`type` = 'BASE TABLE' and
@@ -443,7 +521,9 @@ set @_sql_foreign_keys = (
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
               where `planned_tables`.`name` = `_sql_ordered_foreign_keys`.`referenced_table` and
                   `planned_tables`.`name` not like '_sql__drop_%' and `planned_tables`.`type` = 'BASE TABLE' and
@@ -475,7 +555,9 @@ set @_sql_tables = (
       'name', `name`,
       'comment', `comment`,
       'type', `type`,
-      'engine', `engine`
+      'engine', `engine`,
+      'charset', `charset`,
+      'collate', `collate`
   )), json_array())
   from (
       select
@@ -486,12 +568,16 @@ set @_sql_tables = (
           ) as `name`,
           `comment`,
           `type`,
-          `engine`
+          `engine`,
+          `charset`,
+          `collate`
       from json_table(@_sql_tables, '$[*]' columns (
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
       order by `type`, `name`
   ) as `_sql_ordered_tables`
@@ -506,7 +592,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = '93B099B08D144B40BCC918FA24831669' and `type` = 'BASE TABLE';
 set @ren_tables_prefix = if (@old_table != 'user' && instr(@old_table, '_sql_') != 1,
@@ -526,7 +614,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = '3D9C2B4ED6BA4AE39D3333FC5BBCC1FF' and `type` = 'BASE TABLE';
 set @ren_tables_prefix = if (@old_table != 'project' && instr(@old_table, '_sql_') != 1,
@@ -546,7 +636,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = 'FC94A0BB4E9B422ABC399BBF79E6AC43' and `type` = 'BASE TABLE';
 set @ren_tables_prefix = if (@old_table != 'member' && instr(@old_table, '_sql_') != 1,
@@ -577,7 +669,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = '93B099B08D144B40BCC918FA24831669' and `type` = 'BASE TABLE';
 set @new_table = if(@old_table != 'user' and instr(@old_table, '_sql_') != 1, '_sql_user', @old_table);
@@ -595,6 +689,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -607,6 +703,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -663,7 +761,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = '3D9C2B4ED6BA4AE39D3333FC5BBCC1FF' and `type` = 'BASE TABLE';
 set @new_table = if(@old_table != 'project' and instr(@old_table, '_sql_') != 1, '_sql_project', @old_table);
@@ -681,6 +781,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -693,6 +795,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -749,7 +853,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = 'FC94A0BB4E9B422ABC399BBF79E6AC43' and `type` = 'BASE TABLE';
 set @new_table = if(@old_table != 'member' and instr(@old_table, '_sql_') != 1, '_sql_member', @old_table);
@@ -767,6 +873,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -779,6 +887,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -842,7 +952,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = '93B099B08D144B40BCC918FA24831669' and `type` = 'BASE TABLE';
 set @new_table = if(@old_table != 'user', 'user', @old_table);
@@ -860,6 +972,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -872,6 +986,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -928,7 +1044,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = '3D9C2B4ED6BA4AE39D3333FC5BBCC1FF' and `type` = 'BASE TABLE';
 set @new_table = if(@old_table != 'project', 'project', @old_table);
@@ -946,6 +1064,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -958,6 +1078,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1014,7 +1136,9 @@ select `name` into @old_table
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `comment` = 'FC94A0BB4E9B422ABC399BBF79E6AC43' and `type` = 'BASE TABLE';
 set @new_table = if(@old_table != 'member', 'member', @old_table);
@@ -1032,6 +1156,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -1044,6 +1170,8 @@ set @_sql_columns = if(@new_table = @old_table, @_sql_columns, (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1100,7 +1228,9 @@ select `engine` into @old_engine
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `name` = 'user' and `type` = 'BASE TABLE';
 set @qry = if (@old_engine != 'InnoDB',
@@ -1125,7 +1255,9 @@ select `engine` into @old_engine
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `name` = 'project' and `type` = 'BASE TABLE';
 set @qry = if (@old_engine != 'InnoDB',
@@ -1150,7 +1282,9 @@ select `engine` into @old_engine
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
   where `name` = 'member' and `type` = 'BASE TABLE';
 set @qry = if (@old_engine != 'InnoDB',
@@ -1172,6 +1306,57 @@ set @_sql_tables = if(@table_object is null or @old_engine = 'InnoDB',
 set @all_columns = '';
 set @sub_query = '';
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @all_columns = concat(@all_columns, '{76AC03C95026487AB55A590C48FE4C8F}');
 set @old_column = null;
 select `name` into @old_column
@@ -1181,6 +1366,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1188,10 +1375,61 @@ select `name` into @old_column
   where `comment` = '76AC03C95026487AB55A590C48FE4C8F' and
       `table` = 'user';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_id` int unsigned COMMENT \'76AC03C95026487AB55A590C48FE4C8F\', ')
+  concat(@sub_query, 'ADD `_sql_id` int unsigned', @new_charset_clause, @new_collate_clause, ' COMMENT \'76AC03C95026487AB55A590C48FE4C8F\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{9B1B7A7BC7CF49B49A45E48E55B02669}');
 set @old_column = null;
@@ -1202,6 +1440,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1209,10 +1449,61 @@ select `name` into @old_column
   where `comment` = '9B1B7A7BC7CF49B49A45E48E55B02669' and
       `table` = 'user';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_email` varchar(255) COMMENT \'9B1B7A7BC7CF49B49A45E48E55B02669\', ')
+  concat(@sub_query, 'ADD `_sql_email` varchar(255)', @new_charset_clause, @new_collate_clause, ' COMMENT \'9B1B7A7BC7CF49B49A45E48E55B02669\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = 'ascii';
+set @desired_collate = 'ascii_bin';
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{410FE4351CD34E61AF4DAFE2B7AB7FE4}');
 set @old_column = null;
@@ -1223,6 +1514,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1230,7 +1523,7 @@ select `name` into @old_column
   where `comment` = '410FE4351CD34E61AF4DAFE2B7AB7FE4' and
       `table` = 'user';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_password` varchar(255) COMMENT \'410FE4351CD34E61AF4DAFE2B7AB7FE4\', ')
+  concat(@sub_query, 'ADD `_sql_password` varchar(255)', @new_charset_clause, @new_collate_clause, ' COMMENT \'410FE4351CD34E61AF4DAFE2B7AB7FE4\', ')
 ,
   @sub_query
 );
@@ -1243,6 +1536,57 @@ set @qry = if (@sub_query != '',
 
 select @qry as '';
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_column = null;
 select `name` into @old_column
   from json_table(@_sql_columns, '$[*]' columns (
@@ -1251,6 +1595,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1265,6 +1611,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1278,12 +1626,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '76AC03C95026487AB55A590C48FE4C8F',
       'type', 'int unsigned',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -1293,6 +1694,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1307,6 +1710,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1320,12 +1725,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '9B1B7A7BC7CF49B49A45E48E55B02669',
       'type', 'varchar(255)',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = 'ascii';
+set @desired_collate = 'ascii_bin';
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -1335,6 +1793,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1349,6 +1809,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1362,6 +1824,8 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '410FE4351CD34E61AF4DAFE2B7AB7FE4',
       'type', 'varchar(255)',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
@@ -1378,6 +1842,8 @@ select group_concat(concat('RENAME COLUMN `', `name`, '` to `_sql__drop_', `name
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1405,6 +1871,8 @@ set @_sql_indexes = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1443,6 +1911,8 @@ set @_sql_foreign_keys = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1465,6 +1935,8 @@ set @_sql_foreign_keys = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1501,6 +1973,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -1515,6 +1989,8 @@ set @_sql_columns = (
           `comment`,
           `type`,
           `default_value`,
+          `charset`,
+          `collate`,
           `nullable`,
           `auto`,
           `ordinal`
@@ -1524,6 +2000,8 @@ set @_sql_columns = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1543,6 +2021,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1568,6 +2048,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1593,6 +2075,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1630,6 +2114,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1695,6 +2181,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1760,6 +2248,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1832,6 +2322,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1897,6 +2389,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -1962,6 +2456,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2022,6 +2518,57 @@ set @_sql_foreign_keys = if(@new_column = @old_column, @_sql_foreign_keys, (
 set @all_columns = '';
 set @sub_query = '';
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @all_columns = concat(@all_columns, '{7EA682D7A35E4398A7C782C5F177F4D8}');
 set @old_column = null;
 select `name` into @old_column
@@ -2031,6 +2578,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2038,10 +2587,61 @@ select `name` into @old_column
   where `comment` = '7EA682D7A35E4398A7C782C5F177F4D8' and
       `table` = 'project';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_id` int unsigned COMMENT \'7EA682D7A35E4398A7C782C5F177F4D8\', ')
+  concat(@sub_query, 'ADD `_sql_id` int unsigned', @new_charset_clause, @new_collate_clause, ' COMMENT \'7EA682D7A35E4398A7C782C5F177F4D8\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{C0D24606E108403D92397A3C0AEE219E}');
 set @old_column = null;
@@ -2052,6 +2652,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2059,10 +2661,61 @@ select `name` into @old_column
   where `comment` = 'C0D24606E108403D92397A3C0AEE219E' and
       `table` = 'project';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_name` varchar(255) COMMENT \'C0D24606E108403D92397A3C0AEE219E\', ')
+  concat(@sub_query, 'ADD `_sql_name` varchar(255)', @new_charset_clause, @new_collate_clause, ' COMMENT \'C0D24606E108403D92397A3C0AEE219E\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{0899EAFFFE7A41C7A9876DDDE0E01373}');
 set @old_column = null;
@@ -2073,6 +2726,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2080,10 +2735,61 @@ select `name` into @old_column
   where `comment` = '0899EAFFFE7A41C7A9876DDDE0E01373' and
       `table` = 'project';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_summary` varchar(255) DEFAULT "" COMMENT \'0899EAFFFE7A41C7A9876DDDE0E01373\', ')
+  concat(@sub_query, 'ADD `_sql_summary` varchar(255)', @new_charset_clause, @new_collate_clause, ' DEFAULT "" COMMENT \'0899EAFFFE7A41C7A9876DDDE0E01373\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{7E228CCA41014B51A73A444EEE34AD92}');
 set @old_column = null;
@@ -2094,6 +2800,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2101,10 +2809,61 @@ select `name` into @old_column
   where `comment` = '7E228CCA41014B51A73A444EEE34AD92' and
       `table` = 'project';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_stage` int unsigned COMMENT \'7E228CCA41014B51A73A444EEE34AD92\', ')
+  concat(@sub_query, 'ADD `_sql_stage` int unsigned', @new_charset_clause, @new_collate_clause, ' COMMENT \'7E228CCA41014B51A73A444EEE34AD92\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{16380EA4B54B4E8BB3CF78F36BC51AA2}');
 set @old_column = null;
@@ -2115,6 +2874,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2122,10 +2883,61 @@ select `name` into @old_column
   where `comment` = '16380EA4B54B4E8BB3CF78F36BC51AA2' and
       `table` = 'project';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_round` int unsigned COMMENT \'16380EA4B54B4E8BB3CF78F36BC51AA2\', ')
+  concat(@sub_query, 'ADD `_sql_round` int unsigned', @new_charset_clause, @new_collate_clause, ' COMMENT \'16380EA4B54B4E8BB3CF78F36BC51AA2\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{ECF2AAA32B1A455595F7AF087089C005}');
 set @old_column = null;
@@ -2136,6 +2948,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2143,7 +2957,7 @@ select `name` into @old_column
   where `comment` = 'ECF2AAA32B1A455595F7AF087089C005' and
       `table` = 'project';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_archived` tinyint(1) COMMENT \'ECF2AAA32B1A455595F7AF087089C005\', ')
+  concat(@sub_query, 'ADD `_sql_archived` tinyint(1)', @new_charset_clause, @new_collate_clause, ' COMMENT \'ECF2AAA32B1A455595F7AF087089C005\', ')
 ,
   @sub_query
 );
@@ -2156,6 +2970,57 @@ set @qry = if (@sub_query != '',
 
 select @qry as '';
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_column = null;
 select `name` into @old_column
   from json_table(@_sql_columns, '$[*]' columns (
@@ -2164,6 +3029,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2178,6 +3045,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2191,12 +3060,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '7EA682D7A35E4398A7C782C5F177F4D8',
       'type', 'int unsigned',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -2206,6 +3128,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2220,6 +3144,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2233,12 +3159,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', 'C0D24606E108403D92397A3C0AEE219E',
       'type', 'varchar(255)',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -2248,6 +3227,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2262,6 +3243,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2275,12 +3258,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '0899EAFFFE7A41C7A9876DDDE0E01373',
       'type', 'varchar(255)',
       'default', "",
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -2290,6 +3326,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2304,6 +3342,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2317,12 +3357,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '7E228CCA41014B51A73A444EEE34AD92',
       'type', 'int unsigned',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -2332,6 +3425,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2346,6 +3441,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2359,12 +3456,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '16380EA4B54B4E8BB3CF78F36BC51AA2',
       'type', 'int unsigned',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -2374,6 +3524,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2388,6 +3540,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2401,6 +3555,8 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', 'ECF2AAA32B1A455595F7AF087089C005',
       'type', 'tinyint(1)',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
@@ -2417,6 +3573,8 @@ select group_concat(concat('RENAME COLUMN `', `name`, '` to `_sql__drop_', `name
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2444,6 +3602,8 @@ set @_sql_indexes = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2482,6 +3642,8 @@ set @_sql_foreign_keys = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2504,6 +3666,8 @@ set @_sql_foreign_keys = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2540,6 +3704,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -2554,6 +3720,8 @@ set @_sql_columns = (
           `comment`,
           `type`,
           `default_value`,
+          `charset`,
+          `collate`,
           `nullable`,
           `auto`,
           `ordinal`
@@ -2563,6 +3731,8 @@ set @_sql_columns = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2582,6 +3752,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2607,6 +3779,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2632,6 +3806,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2657,6 +3833,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2682,6 +3860,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2707,6 +3887,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2744,6 +3926,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2809,6 +3993,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2874,6 +4060,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -2939,6 +4127,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3004,6 +4194,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3069,6 +4261,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3141,6 +4335,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3206,6 +4402,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3271,6 +4469,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3336,6 +4536,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3401,6 +4603,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3466,6 +4670,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3526,6 +4732,57 @@ set @_sql_foreign_keys = if(@new_column = @old_column, @_sql_foreign_keys, (
 set @all_columns = '';
 set @sub_query = '';
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @all_columns = concat(@all_columns, '{197EF5B6132D4FC5A284EC950999BFD4}');
 set @old_column = null;
 select `name` into @old_column
@@ -3535,6 +4792,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3542,10 +4801,61 @@ select `name` into @old_column
   where `comment` = '197EF5B6132D4FC5A284EC950999BFD4' and
       `table` = 'member';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_id` int unsigned COMMENT \'197EF5B6132D4FC5A284EC950999BFD4\', ')
+  concat(@sub_query, 'ADD `_sql_id` int unsigned', @new_charset_clause, @new_collate_clause, ' COMMENT \'197EF5B6132D4FC5A284EC950999BFD4\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{4426A25349774BE6A296440E10CD42BB}');
 set @old_column = null;
@@ -3556,6 +4866,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3563,10 +4875,61 @@ select `name` into @old_column
   where `comment` = '4426A25349774BE6A296440E10CD42BB' and
       `table` = 'member';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_project` int unsigned COMMENT \'4426A25349774BE6A296440E10CD42BB\', ')
+  concat(@sub_query, 'ADD `_sql_project` int unsigned', @new_charset_clause, @new_collate_clause, ' COMMENT \'4426A25349774BE6A296440E10CD42BB\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{0FB8B46DDF0348FBB5459592689E71C8}');
 set @old_column = null;
@@ -3577,6 +4940,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3584,10 +4949,61 @@ select `name` into @old_column
   where `comment` = '0FB8B46DDF0348FBB5459592689E71C8' and
       `table` = 'member';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_user` int unsigned COMMENT \'0FB8B46DDF0348FBB5459592689E71C8\', ')
+  concat(@sub_query, 'ADD `_sql_user` int unsigned', @new_charset_clause, @new_collate_clause, ' COMMENT \'0FB8B46DDF0348FBB5459592689E71C8\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{A6643F4E00B24616A21CB88193ABDAE8}');
 set @old_column = null;
@@ -3598,6 +5014,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3605,10 +5023,61 @@ select `name` into @old_column
   where `comment` = 'A6643F4E00B24616A21CB88193ABDAE8' and
       `table` = 'member';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_admin` tinyint(1) COMMENT \'A6643F4E00B24616A21CB88193ABDAE8\', ')
+  concat(@sub_query, 'ADD `_sql_admin` tinyint(1)', @new_charset_clause, @new_collate_clause, ' COMMENT \'A6643F4E00B24616A21CB88193ABDAE8\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = 'utf8mb4_bin';
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{F27DEAD22DBB4256BA9B0B04147411EE}');
 set @old_column = null;
@@ -3619,6 +5088,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3626,10 +5097,61 @@ select `name` into @old_column
   where `comment` = 'F27DEAD22DBB4256BA9B0B04147411EE' and
       `table` = 'member';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_nickname` varchar(50) COMMENT \'F27DEAD22DBB4256BA9B0B04147411EE\', ')
+  concat(@sub_query, 'ADD `_sql_nickname` varchar(50)', @new_charset_clause, @new_collate_clause, ' COMMENT \'F27DEAD22DBB4256BA9B0B04147411EE\', ')
 ,
   @sub_query
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @all_columns = concat(@all_columns, '{B278231268FA4DBF8EF910285AA64776}');
 set @old_column = null;
@@ -3640,6 +5162,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3647,7 +5171,7 @@ select `name` into @old_column
   where `comment` = 'B278231268FA4DBF8EF910285AA64776' and
       `table` = 'member';
 set @sub_query = if (isnull(@old_column),
-  concat(@sub_query, 'ADD `_sql_pin` int unsigned COMMENT \'B278231268FA4DBF8EF910285AA64776\', ')
+  concat(@sub_query, 'ADD `_sql_pin` int unsigned', @new_charset_clause, @new_collate_clause, ' COMMENT \'B278231268FA4DBF8EF910285AA64776\', ')
 ,
   @sub_query
 );
@@ -3660,6 +5184,57 @@ set @qry = if (@sub_query != '',
 
 select @qry as '';
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_column = null;
 select `name` into @old_column
   from json_table(@_sql_columns, '$[*]' columns (
@@ -3668,6 +5243,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3682,6 +5259,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3695,12 +5274,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '197EF5B6132D4FC5A284EC950999BFD4',
       'type', 'int unsigned',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -3710,6 +5342,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3724,6 +5358,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3737,12 +5373,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '4426A25349774BE6A296440E10CD42BB',
       'type', 'int unsigned',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -3752,6 +5441,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3766,6 +5457,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3779,12 +5472,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', '0FB8B46DDF0348FBB5459592689E71C8',
       'type', 'int unsigned',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -3794,6 +5540,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3808,6 +5556,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3821,12 +5571,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', 'A6643F4E00B24616A21CB88193ABDAE8',
       'type', 'tinyint(1)',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = 'utf8mb4_bin';
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -3836,6 +5639,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3850,6 +5655,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3863,12 +5670,65 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', 'F27DEAD22DBB4256BA9B0B04147411EE',
       'type', 'varchar(50)',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
   )),
   @_sql_columns
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @old_column = null;
 select `name` into @old_column
@@ -3878,6 +5738,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3892,6 +5754,8 @@ set @next_ordinal = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3905,6 +5769,8 @@ set @_sql_columns = if(isnull(@old_column),
       'comment', 'B278231268FA4DBF8EF910285AA64776',
       'type', 'int unsigned',
       'default', null,
+      'charset', @new_charset,
+      'collate', @new_collate,
       'nullable', 'YES',
       'auto', false,
       'ordinal', @next_ordinal
@@ -3921,6 +5787,8 @@ select group_concat(concat('RENAME COLUMN `', `name`, '` to `_sql__drop_', `name
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3948,6 +5816,8 @@ set @_sql_indexes = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -3986,6 +5856,8 @@ set @_sql_foreign_keys = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4008,6 +5880,8 @@ set @_sql_foreign_keys = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4044,6 +5918,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -4058,6 +5934,8 @@ set @_sql_columns = (
           `comment`,
           `type`,
           `default_value`,
+          `charset`,
+          `collate`,
           `nullable`,
           `auto`,
           `ordinal`
@@ -4067,6 +5945,8 @@ set @_sql_columns = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4086,6 +5966,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4111,6 +5993,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4136,6 +6020,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4161,6 +6047,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4186,6 +6074,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4211,6 +6101,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4248,6 +6140,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4313,6 +6207,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4378,6 +6274,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4443,6 +6341,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4508,6 +6408,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4573,6 +6475,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4645,6 +6549,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4710,6 +6616,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4775,6 +6683,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4840,6 +6750,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4905,6 +6817,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -4970,6 +6884,8 @@ select `name` into @old_column
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5456,19 +7372,74 @@ set @_sql_indexes = if(isnull(@sub_query),
 set @sub_query = '';
 set @ordinal_change = false;
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5478,26 +7449,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 1, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'int unsigned' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != true,
-  concat(@sub_query, 'MODIFY `id` int unsigned not null auto_increment COMMENT \'76AC03C95026487AB55A590C48FE4C8F\' FIRST, ')
+  concat(@sub_query, 'MODIFY `id` int unsigned', @new_charset_clause, @new_collate_clause, ' not null auto_increment COMMENT \'76AC03C95026487AB55A590C48FE4C8F\' FIRST, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5507,26 +7535,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 2, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'varchar(255)' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'YES' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `email` varchar(255) null COMMENT \'9B1B7A7BC7CF49B49A45E48E55B02669\' AFTER `id`, ')
+  concat(@sub_query, 'MODIFY `email` varchar(255)', @new_charset_clause, @new_collate_clause, ' null COMMENT \'9B1B7A7BC7CF49B49A45E48E55B02669\' AFTER `id`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = 'ascii';
+set @desired_collate = 'ascii_bin';
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5536,9 +7621,11 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 3, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'varchar(255)' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `password` varchar(255) not null COMMENT \'410FE4351CD34E61AF4DAFE2B7AB7FE4\' AFTER `email`, ')
+  concat(@sub_query, 'MODIFY `password` varchar(255)', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'410FE4351CD34E61AF4DAFE2B7AB7FE4\' AFTER `email`, ')
 ,
   @sub_query
 );
@@ -5624,6 +7711,8 @@ select group_concat(concat('DROP COLUMN `', `name`, '`')
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5650,6 +7739,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -5662,6 +7753,8 @@ set @_sql_columns = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5705,6 +7798,57 @@ set @_sql_indexes = json_array_append(@_sql_indexes, '$', json_object(
   'foreign_key', false
 ));
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '76AC03C95026487AB55A590C48FE4C8F', null, '$[*].comment'));
 set @column_object = if(@column_path is null, null, replace(@column_path, '.comment', ''));
@@ -5714,11 +7858,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'int unsigned',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), true,
       concat(@column_object, '.ordinal'), 1
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '9B1B7A7BC7CF49B49A45E48E55B02669', null, '$[*].comment'));
@@ -5729,11 +7926,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'varchar(255)',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'YES',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 2
   )
 );
+
+set @desired_charset = 'ascii';
+set @desired_collate = 'ascii_bin';
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'user' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '410FE4351CD34E61AF4DAFE2B7AB7FE4', null, '$[*].comment'));
@@ -5744,6 +7994,8 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'varchar(255)',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 3
@@ -5753,19 +8005,74 @@ set @_sql_columns = if(@column_object is null,
 set @sub_query = '';
 set @ordinal_change = false;
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5775,26 +8082,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 1, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'int unsigned' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != true,
-  concat(@sub_query, 'MODIFY `id` int unsigned not null auto_increment COMMENT \'7EA682D7A35E4398A7C782C5F177F4D8\' FIRST, ')
+  concat(@sub_query, 'MODIFY `id` int unsigned', @new_charset_clause, @new_collate_clause, ' not null auto_increment COMMENT \'7EA682D7A35E4398A7C782C5F177F4D8\' FIRST, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5804,26 +8168,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 2, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'varchar(255)' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `name` varchar(255) not null COMMENT \'C0D24606E108403D92397A3C0AEE219E\' AFTER `id`, ')
+  concat(@sub_query, 'MODIFY `name` varchar(255)', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'C0D24606E108403D92397A3C0AEE219E\' AFTER `id`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5833,26 +8254,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 3, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'varchar(255)' or @old_default IS NULL or @old_default != "" or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `summary` varchar(255) DEFAULT "" not null COMMENT \'0899EAFFFE7A41C7A9876DDDE0E01373\' AFTER `name`, ')
+  concat(@sub_query, 'MODIFY `summary` varchar(255)', @new_charset_clause, @new_collate_clause, ' DEFAULT "" not null COMMENT \'0899EAFFFE7A41C7A9876DDDE0E01373\' AFTER `name`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5862,26 +8340,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 4, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'int unsigned' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `stage` int unsigned not null COMMENT \'7E228CCA41014B51A73A444EEE34AD92\' AFTER `summary`, ')
+  concat(@sub_query, 'MODIFY `stage` int unsigned', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'7E228CCA41014B51A73A444EEE34AD92\' AFTER `summary`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5891,26 +8426,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 5, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'int unsigned' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `round` int unsigned not null COMMENT \'16380EA4B54B4E8BB3CF78F36BC51AA2\' AFTER `stage`, ')
+  concat(@sub_query, 'MODIFY `round` int unsigned', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'16380EA4B54B4E8BB3CF78F36BC51AA2\' AFTER `stage`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -5920,9 +8512,11 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 6, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'tinyint(1)' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `archived` tinyint(1) not null COMMENT \'ECF2AAA32B1A455595F7AF087089C005\' AFTER `round`, ')
+  concat(@sub_query, 'MODIFY `archived` tinyint(1)', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'ECF2AAA32B1A455595F7AF087089C005\' AFTER `round`, ')
 ,
   @sub_query
 );
@@ -6008,6 +8602,8 @@ select group_concat(concat('DROP COLUMN `', `name`, '`')
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6034,6 +8630,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -6046,6 +8644,8 @@ set @_sql_columns = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6089,6 +8689,57 @@ set @_sql_indexes = json_array_append(@_sql_indexes, '$', json_object(
   'foreign_key', false
 ));
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '7EA682D7A35E4398A7C782C5F177F4D8', null, '$[*].comment'));
 set @column_object = if(@column_path is null, null, replace(@column_path, '.comment', ''));
@@ -6098,11 +8749,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'int unsigned',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), true,
       concat(@column_object, '.ordinal'), 1
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', 'C0D24606E108403D92397A3C0AEE219E', null, '$[*].comment'));
@@ -6113,11 +8817,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'varchar(255)',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 2
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '0899EAFFFE7A41C7A9876DDDE0E01373', null, '$[*].comment'));
@@ -6128,11 +8885,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'varchar(255)',
       concat(@column_object, '.default'), "",
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 3
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '7E228CCA41014B51A73A444EEE34AD92', null, '$[*].comment'));
@@ -6143,11 +8953,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'int unsigned',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 4
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '16380EA4B54B4E8BB3CF78F36BC51AA2', null, '$[*].comment'));
@@ -6158,11 +9021,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'int unsigned',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 5
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'project' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', 'ECF2AAA32B1A455595F7AF087089C005', null, '$[*].comment'));
@@ -6173,6 +9089,8 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'tinyint(1)',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 6
@@ -6182,19 +9100,74 @@ set @_sql_columns = if(@column_object is null,
 set @sub_query = '';
 set @ordinal_change = false;
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6204,26 +9177,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 1, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'int unsigned' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != true,
-  concat(@sub_query, 'MODIFY `id` int unsigned not null auto_increment COMMENT \'197EF5B6132D4FC5A284EC950999BFD4\' FIRST, ')
+  concat(@sub_query, 'MODIFY `id` int unsigned', @new_charset_clause, @new_collate_clause, ' not null auto_increment COMMENT \'197EF5B6132D4FC5A284EC950999BFD4\' FIRST, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6233,26 +9263,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 2, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'int unsigned' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `project` int unsigned not null COMMENT \'4426A25349774BE6A296440E10CD42BB\' AFTER `id`, ')
+  concat(@sub_query, 'MODIFY `project` int unsigned', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'4426A25349774BE6A296440E10CD42BB\' AFTER `id`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6262,26 +9349,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 3, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'int unsigned' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'YES' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `user` int unsigned null COMMENT \'0FB8B46DDF0348FBB5459592689E71C8\' AFTER `project`, ')
+  concat(@sub_query, 'MODIFY `user` int unsigned', @new_charset_clause, @new_collate_clause, ' null COMMENT \'0FB8B46DDF0348FBB5459592689E71C8\' AFTER `project`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6291,26 +9435,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 4, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'tinyint(1)' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `admin` tinyint(1) not null COMMENT \'A6643F4E00B24616A21CB88193ABDAE8\' AFTER `user`, ')
+  concat(@sub_query, 'MODIFY `admin` tinyint(1)', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'A6643F4E00B24616A21CB88193ABDAE8\' AFTER `user`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = 'utf8mb4_bin';
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6320,26 +9521,83 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 5, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'varchar(50)' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `nickname` varchar(50) not null COMMENT \'F27DEAD22DBB4256BA9B0B04147411EE\' AFTER `admin`, ')
+  concat(@sub_query, 'MODIFY `nickname` varchar(50)', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'F27DEAD22DBB4256BA9B0B04147411EE\' AFTER `admin`, ')
 ,
   @sub_query
 );
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @old_type = null;
 set @old_default = null;
+set @old_charset = null;
+set @old_collate = null;
 set @old_null = null;
 set @old_auto = null;
 set @old_position = null;
-select `type`, `default_value`, `nullable`, `auto`, `ordinal`
-  into @old_type, @old_default, @old_null, @old_auto, @old_position
+select `type`, `default_value`, `charset`, `collate`, `nullable`, `auto`, `ordinal`
+  into @old_type, @old_default, @old_charset, @old_collate, @old_null, @old_auto, @old_position
   from json_table(@_sql_columns, '$[*]' columns (
         `table` varchar(255) path '$.table',
         `name` varchar(255) path '$.name',
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6349,9 +9607,11 @@ select `type`, `default_value`, `nullable`, `auto`, `ordinal`
 set @ordinal_change = if (@old_position != 6, true, @ordinal_change);
 set @sub_query = if (@ordinal_change or
   @old_type != 'int unsigned' or
+  not (@old_charset <=> @new_charset) or
+  not (@old_collate <=> @new_collate) or
   @old_null != 'NO' or
   @old_auto != false,
-  concat(@sub_query, 'MODIFY `pin` int unsigned not null COMMENT \'B278231268FA4DBF8EF910285AA64776\' AFTER `nickname`, ')
+  concat(@sub_query, 'MODIFY `pin` int unsigned', @new_charset_clause, @new_collate_clause, ' not null COMMENT \'B278231268FA4DBF8EF910285AA64776\' AFTER `nickname`, ')
 ,
   @sub_query
 );
@@ -6463,6 +9723,8 @@ select group_concat(concat('DROP COLUMN `', `name`, '`')
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6489,6 +9751,8 @@ set @_sql_columns = (
       'comment', `comment`,
       'type', `type`,
       'default', `default_value`,
+      'charset', `charset`,
+      'collate', `collate`,
       'nullable', `nullable`,
       'auto', `auto`,
       'ordinal', `ordinal`
@@ -6501,6 +9765,8 @@ set @_sql_columns = (
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6551,6 +9817,57 @@ set @_sql_indexes = json_array_append(@_sql_indexes, '$', json_object(
   'foreign_key', false
 ));
 
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
+
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '197EF5B6132D4FC5A284EC950999BFD4', null, '$[*].comment'));
 set @column_object = if(@column_path is null, null, replace(@column_path, '.comment', ''));
@@ -6560,11 +9877,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'int unsigned',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), true,
       concat(@column_object, '.ordinal'), 1
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '4426A25349774BE6A296440E10CD42BB', null, '$[*].comment'));
@@ -6575,11 +9945,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'int unsigned',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 2
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', '0FB8B46DDF0348FBB5459592689E71C8', null, '$[*].comment'));
@@ -6590,11 +10013,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'int unsigned',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'YES',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 3
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', 'A6643F4E00B24616A21CB88193ABDAE8', null, '$[*].comment'));
@@ -6605,11 +10081,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'tinyint(1)',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 4
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = 'utf8mb4_bin';
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', 'F27DEAD22DBB4256BA9B0B04147411EE', null, '$[*].comment'));
@@ -6620,11 +10149,64 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'varchar(50)',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 5
   )
 );
+
+set @desired_charset = null;
+set @desired_collate = null;
+set @table_charset = null;
+set @table_collate = null;
+select `charset`, `collate`
+  into @table_charset, @table_collate
+  from json_table(@_sql_tables, '$[*]' columns (
+        `name` varchar(255) path '$.name',
+        `comment` varchar(2048) path '$.comment',
+        `type` varchar(64) path '$.type',
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
+    )) as `planned_tables`
+  where `name` = 'member' and `type` = 'BASE TABLE';
+set @desired_collate_charset = null;
+select `CHARACTER_SET_NAME`
+  into @desired_collate_charset
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `COLLATION_NAME` = @desired_collate
+  limit 1;
+set @new_effective_charset = if(
+  @desired_charset is not null,
+  @desired_charset,
+  if(@desired_collate is not null, @desired_collate_charset, @table_charset)
+);
+set @new_default_collate = null;
+select `COLLATION_NAME`
+  into @new_default_collate
+  from `INFORMATION_SCHEMA`.`COLLATIONS`
+  where `CHARACTER_SET_NAME` = @new_effective_charset and
+      `IS_DEFAULT` = 'Yes'
+  limit 1;
+set @new_effective_collate = if(
+  @desired_collate is not null,
+  @desired_collate,
+  if(@desired_charset is not null, @new_default_collate, @table_collate)
+);
+set @new_charset = if(
+  @new_effective_charset <=> @table_charset,
+  null,
+  @new_effective_charset
+);
+set @new_collate = if(
+  @new_effective_collate <=> if(@new_charset is null, @table_collate, @new_default_collate),
+  null,
+  @new_effective_collate
+);
+set @new_charset_clause = if(@new_charset is null, '', concat(' CHARACTER SET ', @new_charset));
+set @new_collate_clause = if(@new_collate is null, '', concat(' COLLATE ', @new_collate));
 
 set @column_path = json_unquote(json_search(
   @_sql_columns, 'one', 'B278231268FA4DBF8EF910285AA64776', null, '$[*].comment'));
@@ -6635,6 +10217,8 @@ set @_sql_columns = if(@column_object is null,
       @_sql_columns,
       concat(@column_object, '.type'), 'int unsigned',
       concat(@column_object, '.default'), json_extract(@_sql_columns, concat(@column_object, '.default')),
+      concat(@column_object, '.charset'), @new_charset,
+      concat(@column_object, '.collate'), @new_collate,
       concat(@column_object, '.nullable'), 'NO',
       concat(@column_object, '.auto'), false,
       concat(@column_object, '.ordinal'), 6
@@ -6652,6 +10236,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6673,6 +10259,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6694,6 +10282,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6749,6 +10339,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6770,6 +10362,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6791,6 +10385,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6812,6 +10408,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6833,6 +10431,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6904,6 +10504,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6925,6 +10527,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6946,6 +10550,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6967,6 +10573,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -6988,6 +10596,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -7009,6 +10619,8 @@ select `default_value`
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'
@@ -7084,7 +10696,9 @@ from json_table(@_sql_tables, '$[*]' columns (
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
 where
   `type` = 'BASE TABLE' and
@@ -7100,7 +10714,9 @@ set @_sql_tables = (
       'name', `name`,
       'comment', `comment`,
       'type', `type`,
-      'engine', `engine`
+      'engine', `engine`,
+      'charset', `charset`,
+      'collate', `collate`
   )), json_array())
   from (
       select *
@@ -7108,7 +10724,9 @@ set @_sql_tables = (
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`
       where not (`type` = 'BASE TABLE' and `name` like '_sql__drop_%')
       order by `type`, `name`

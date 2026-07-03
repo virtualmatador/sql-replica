@@ -1,0 +1,17 @@
+{
+  "name": "demo",
+  "tables": [
+    {
+      "name": "article",
+      "id": "ARTICLE_TABLE",
+      "columns": [
+        {"id": "ARTICLE_ID", "name": "id", "type": "int unsigned", "auto": true},
+        {"id": "ARTICLE_TITLE", "name": "title", "type": "varchar(64)", "charset": "utf8mb4"}
+      ],
+      "keys": [
+        {"name": "PRIMARY", "type": "primary key", "columns": ["id"]}
+      ]
+    }
+  ],
+  "users": null
+}

@@ -242,6 +242,22 @@ bool t14_repeated_column_id_across_tables() {
       __FUNCTION__);
 }
 
+bool t15_bad_charset() {
+  auto tables = read_json(R"json([
+    {
+      "name": "account",
+      "id": "ACCOUNT_TABLE",
+      "columns": [
+        {"id": "ACCOUNT_ID", "name": "id", "type": "varchar(64)", "charset": "utf8mb4;DROP"}
+      ]
+    }
+  ])json");
+  auto empty = read_json("[]");
+  return expect_throw(
+      [&] { Schema(schema(tables, empty, empty), true, true).replicate_sql(); },
+      __FUNCTION__);
+}
+
 int main() {
   if (t01_bad_db_name() && t02_bad_engine() && t03_bad_key_type() &&
       t04_bad_foreign_key_action() && t05_unknown_table_field() &&
@@ -249,7 +265,7 @@ int main() {
       t08_bad_routine() && t09_bad_routine_definition() &&
       t10_bad_view_body() && t11_bad_view_body_semicolon() &&
       t12_generate_prefixes() && t13_sanitize_rules_are_loaded() &&
-      t14_repeated_column_id_across_tables() && true) {
+      t14_repeated_column_id_across_tables() && t15_bad_charset() && true) {
     return 0;
   }
   return -1;

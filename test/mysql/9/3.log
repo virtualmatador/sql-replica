@@ -1,0 +1,32 @@
+-- pass 1
+SET @r = 'Database "demo" exists.';
+USE `demo`;
+SET @r = 'Table "article" exist.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "article" is ok.';
+SET @r = 'No new column in "article" is needed.';
+SET @r = 'No extra column in "article".';
+SET @r = 'No column in "article" needs prefix.';
+SET @r = 'No column in "article" needs rename.';
+SET @r = 'No extra foreign keys in "article".';
+SET @r = 'Table "article" is ok.';
+SET @r = 'Table "article" is ok.';
+SET @r = 'No extra table.';
+-- pass 2
+SET @r = 'Database "demo" exists.';
+USE `demo`;
+SET @r = 'Table "article" exist.';
+SET @r = 'No extra table.';
+SET @r = 'No table needs prefix.';
+SET @r = 'No table rename needed.';
+SET @r = 'Engine of "article" is ok.';
+SET @r = 'No new column in "article" is needed.';
+SET @r = 'No extra column in "article".';
+SET @r = 'No column in "article" needs prefix.';
+SET @r = 'No column in "article" needs rename.';
+SET @r = 'No extra foreign keys in "article".';
+SET @r = 'Table "article" is ok.';
+SET @r = 'Table "article" is ok.';
+SET @r = 'No extra table.';

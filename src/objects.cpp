@@ -60,6 +60,10 @@ const char *sanitize_rule_name(Objects::SanitizeRule rule) {
     return "view-body";
   case Objects::SanitizeRule::MysqlColumnType:
     return "mysql-column-type";
+  case Objects::SanitizeRule::MysqlCharset:
+    return "mysql-charset";
+  case Objects::SanitizeRule::MysqlCollation:
+    return "mysql-collation";
   }
   throw std::runtime_error("Publish MySQL: Unknown Sanitize Rule");
 }
@@ -183,7 +187,9 @@ std::string Objects::planned_tables_from_json(const std::string &json) {
         `name` varchar(255) path '$.name',
         `comment` varchar(2048) path '$.comment',
         `type` varchar(64) path '$.type',
-        `engine` varchar(64) path '$.engine'
+        `engine` varchar(64) path '$.engine',
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty
     )) as `planned_tables`)";
 }
 
@@ -195,6 +201,8 @@ std::string Objects::planned_columns_from_json(const std::string &json) {
         `comment` varchar(1024) path '$.comment',
         `type` text path '$.type',
         `default_value` text path '$.default' null on empty,
+        `charset` varchar(64) path '$.charset' null on empty,
+        `collate` varchar(64) path '$.collate' null on empty,
         `nullable` varchar(3) path '$.nullable',
         `auto` bool path '$.auto',
         `ordinal` int path '$.ordinal'

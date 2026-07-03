@@ -1,7 +1,7 @@
 -- pass 1
 CREATE DATABASE `demo`;
 USE `demo`;
-CREATE TABLE `demo`.`_sql_product` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT 'PRODUCT_TABLE';
+CREATE TABLE `demo`.`_sql_product` (`_sql_` int UNSIGNED NOT NULL) ENGINE=InnoDB COMMENT 'PRODUCT_TABLE';
 SET @r = 'No extra table.';
 SET @r = 'All tables have prefix.';
 RENAME TABLE `demo`.`_sql_product` to `demo`.`product`;
